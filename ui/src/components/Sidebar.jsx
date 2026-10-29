@@ -6,7 +6,7 @@ function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="logo-area">
-        <img className="logo" src={trojanLogo} alt="TROJAN" width="172" height="57" />
+        <img className="logo" src={trojanLogo} alt="TROJAN" width="2172" height="724" />
       </div>
 
       <nav aria-label="Workspace">
