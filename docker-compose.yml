@@ -1,0 +1,58 @@
+services:
+  # Database
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-app_password}
+      POSTGRES_DB: ${DB_NAME:-app_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app} -d ${DB_NAME:-app_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Live update store (Redis: pub/sub, caching, real-time state)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Backend placeholder: replies on http://localhost:8000
+  # Replace `image` with `build: ./backend` once the backend exists.
+  backend:
+    image: traefik/whoami
+    ports:
+      - "8000:80"
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-app}:${DB_PASSWORD:-app_password}@db:5432/${DB_NAME:-app_db}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Dashboard placeholder: serves a page on http://localhost:3000
+  # Replace `image` with `build: ./dashboard` once the dashboard exists.
+  dashboard:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
+  redis_data:
