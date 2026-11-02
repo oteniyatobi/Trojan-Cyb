@@ -4,3 +4,23 @@
 .env.local
 .env.*.local
 .env.prod
+# Python environments and caches
+.venv/
+venv/
+trenv/
+__pycache__/
+*.py[cod]
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
