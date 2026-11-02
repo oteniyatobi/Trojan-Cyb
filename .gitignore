@@ -1,3 +1,9 @@
+
+# Environment variables - NEVER commit actual secrets
+.env
+.env.local
+.env.*.local
+.env.prod
 # Python environments and caches
 .venv/
 venv/
