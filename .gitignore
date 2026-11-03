@@ -24,3 +24,9 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+
+# Security lab
+wazuh-docker/
+*.pem
+eve.json
+fast.log
