@@ -1,0 +1,6 @@
+alert http any any -> any any (msg:"TROJAN test rule"; content:"trojan-test"; sid:1000001; rev:1;)
+alert http any any -> any any (msg:"TROJAN fake SQL injection"; content:"sqltest"; sid:1000002; rev:1;)
+alert http any any -> any any (msg:"TROJAN fake script injection"; content:"xsstest"; sid:1000003; rev:1;)
+alert http any any -> any any (msg:"TROJAN fake password guessing"; content:"bruteforcetest"; sid:1000004; rev:1;)
+alert http any any -> any any (msg:"TROJAN fake scan"; content:"scantest"; sid:1000005; rev:1;)
+alert http any any -> any any (msg:"TROJAN fake flood"; content:"floodtest"; sid:1000006; rev:1;)
