@@ -72,20 +72,19 @@ def run_wapiti_scan(target_url: str) -> list:
             with open(temp_report_path, 'r') as report_file:
                 data = json.load(report_file)
 
-                vulnerabilities = data.get("vulnerabilities", {})
-                for category, issues in vulnerabilities.items():
+                vulnerabirities = data.get("vulnerabilities", {})
+                for category, issues in vulnerabirities.items():
+                    #wapiti categories
+                    if category in CRITICAL_CATEGORIES:
+                        severity = "critical"
+                    elif category in HIGH_CATEGORIES:
+                        severity = "high"
+                    elif category in MEDIUM_CATEGORIES:
+                        severity = "medium"
+                    else:
+                        severity = "low"
+                        
                     for issue in issues:
-                        #wapiti categories
-
-                        if category in CRITICAL_CATEGORIES:
-                            severity = "critical"
-                        elif category in HIGH_CATEGORIES:
-                            severity = "high"
-                        elif category in MEDIUM_CATEGORIES:
-                            severity = "medium"
-                        else:
-                            severity = "low"
-
                         findings.append({
                             "tool": "wapiti",
                             "target": target_url,
