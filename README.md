@@ -6,9 +6,9 @@ TROJAN is a university group project developed collaboratively by **Team TROJAN*
 
 ## Project status
 
-The React frontend foundation is established in `ui/`. It includes a responsive application shell, a sidebar, a header, and four static KPI placeholders. Detailed application functionality and service integration remain under development.
+The React frontend in `ui/` now includes six demo pages: Overview, Alerts, Findings, Scans, Health, and Settings. It includes alert details, charts, filters, a local scan queue, and editable demo preferences. Sample records are stored in `ui/src/data/demo.json`.
 
-The interface does not yet perform monitoring, scans, authentication, or AI inference. Search, profile, and navigation items are placeholders; security data is not connected.
+The interface uses demo data only. It does not perform real monitoring, scanning, authentication, or AI inference. A future Flask API connection will replace the local JSON source; scan requests and preference changes currently remain in browser memory until the page is reloaded.
 
 ## Planned capabilities
 
@@ -24,7 +24,7 @@ These capabilities are planned or in development:
 
 | Area | Technology | Current scope |
 | --- | --- | --- |
-| Frontend | React + Vite, JavaScript/JSX, plain CSS | Application shell implemented |
+| Frontend | React + Vite, JavaScript/JSX, plain CSS | Demo pages implemented |
 | Backend | FastAPI | Planned service |
 | Security monitoring | Wazuh and Suricata | Planned integration |
 | AI inference | Python-based service | Planned service |
@@ -56,7 +56,7 @@ See the [frontend guide](ui/README.md) for lint, build, folder structure, and im
 
 The [TROJAN Figma designs](https://www.figma.com/design/BodyaUM2wEUjrzZpivC7ys/Trojan?node-id=9-3) guide the interface.
 
-The images below are **Figma design references**, showing planned screens and illustrative values. The running application currently implements only the basic shell and KPI placeholders.
+The images below are **Figma design references**, showing planned screens and illustrative values. The running application follows these layouts with locally stored demo data; real security functionality remains under development.
 
 ### Overview design
 

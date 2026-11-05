@@ -10,7 +10,7 @@ export function SeverityChart({ alerts }) {
 
   return (
     <section className="panel">
-      <h2>Threat severity</h2>
+      <h2>Threat Severity</h2>
       <p className="panel-caption">Active alerts by priority</p>
       <div className="severity-chart">
         <div className="donut">
@@ -74,7 +74,7 @@ export function ActivityChart({ activity, period }) {
 
   return (
     <section className="panel">
-      <h2>Threat activity</h2>
+      <h2>Threat Activity</h2>
       <p className="panel-caption">Security events · {period}</p>
       <div className="activity-chart">
         <svg

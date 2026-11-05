@@ -86,14 +86,14 @@ ui/
 
 The [TROJAN Figma designs](https://www.figma.com/design/BodyaUM2wEUjrzZpivC7ys/Trojan?node-id=9-3) guide the layout. Both official logos were copied unchanged from the project's supplied assets:
 
-- `src/assets/trojan-logo.png`: regular logo used on the light sidebar.
-- `src/assets/trojan-logo-white.png`: white-text version used in dark mode.
+- `src/assets/trojan-logo.png`: regular logo used in the light top bar and demo login.
+- `src/assets/trojan-logo-white.png`: white-text version used in the dark top bar and login branding panel.
 
 The logo uses its original 3:1 aspect ratio, with CSS controlling the display width and automatic height. Sora is used for major headings and Plus Jakarta Sans for interface text. Both load through Google Fonts, with local sans-serif fallbacks when internet access is unavailable.
 
 ### Screenshot previews
 
-These are **Figma design references**, not screenshots of the implemented application. The dashboard pages use local demo values and simple charts inspired by these designs. Login and real authentication are not implemented.
+These are **Figma design references**, not screenshots of the implemented application. The dashboard pages use local demo values and simple charts inspired by these designs. A demo login accepts an empty submission; real authentication is not implemented.
 
 <img src="screenshots/trojan-1.png" alt="TROJAN Overview design reference" width="600" />
 
@@ -118,7 +118,7 @@ Screenshots are kept outside `src/` and are not imported into React components. 
 - **Health:** service status cards and a searchable host list.
 - **Settings:** demo account details and editable workspace/notification preferences. Saving does not send emails or contact a service.
 
-The sidebar switches pages using a single React state value, without a routing library. Scans and saved settings remain available while switching pages; a browser reload resets them to the JSON defaults. Search filters reset when leaving their page. The shared header labels the workspace as a demo.
+Navigation uses hash routes and one React state value, without a routing library. Scans and saved settings remain available while switching pages; a browser reload resets them to the JSON defaults. Search filters reset when leaving their page. All security records are demo data.
 
 ## Demo data and the future Flask API
 
@@ -138,4 +138,26 @@ See the [project README](../README.md) for the planned platform capabilities and
 
 ## Light and dark mode
 
-Use the Dark mode switch in the top bar or in Settings → Appearance. Both switches update the same theme immediately, without saving the demo preferences form. The theme is stored in browser local storage as `trojan-theme` and survives a reload; other demo settings still reset. If storage is unavailable, switching works for the current visit. Theme colors are defined in `src/styles/main.css`.
+Use the Dark mode switch in the profile dropdown or in Settings → Appearance. Both switches update the same theme immediately, without saving the demo preferences form. The theme is stored in browser local storage as `trojan-theme` and survives a reload; other demo settings still reset. If storage is unavailable, switching works for the current visit. Theme colors are defined in `src/styles/main.css`.
+
+## Demo login and sidebar
+
+Click **Sign in to demo** without entering an email or password. No credentials are checked or stored. The logout button to the right of the profile returns to the login screen. Reloading keeps the current route; this demo does not enforce authentication.
+
+The top bar spans the full page. Its three-line button expands or collapses the sidebar using one boolean state; the icon stays the same in both states. Collapsed navigation keeps the page icons and accessible labels. On small screens the expanded sidebar overlays the content and closes after selecting a page. All interface corners are square. The favicon in `public/favicon.png` is the icon extracted from the official logo.
+
+The top-bar profile opens a dropdown with Alerts, Settings, and the theme switch. Its arrow points up while open. Settings also appears at the bottom of the sidebar with a sliders icon. Overview and Findings use compact KPI cards with icons.
+
+## Page routes
+
+The URL changes when you navigate, using the part after `#`:
+
+- `#/login`
+- `#/overview`
+- `#/alerts` and `#/alerts/ALT-001`
+- `#/findings`
+- `#/scans`
+- `#/health`
+- `#/settings`
+
+`App.jsx` reads the hash and listens for `hashchange`. Browser Back/Forward, direct links, and reloads work without a router package or server rewrite rules. Unknown routes show a small page-not-found message. Routes are public in this demo; real login checks will be added with the API.

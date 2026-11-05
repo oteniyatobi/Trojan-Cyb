@@ -9,14 +9,15 @@ import Findings from './pages/Findings.jsx'
 import Scans from './pages/Scans.jsx'
 import Health from './pages/Health.jsx'
 import Settings from './pages/Settings.jsx'
+import Login from './pages/Login.jsx'
 
-const descriptions = {
-  Overview: '',
-  Alerts: '',
-  Findings: '',
-  Scans: '',
-  Health: '',
-  Settings: '',
+const pages = {
+  overview: 'Overview',
+  alerts: 'Alerts',
+  findings: 'Findings',
+  scans: 'Scans',
+  health: 'Health',
+  settings: 'Settings',
 }
 
 function App() {
@@ -27,10 +28,29 @@ function App() {
       return 'light'
     }
   })
-  const [activePage, setActivePage] = useState('Overview')
-  const [selectedAlert, setSelectedAlert] = useState(null)
+  const [collapsed, setCollapsed] = useState(window.innerWidth <= 700)
+  const [route, setRoute] = useState(window.location.hash.slice(1) || '/login')
   const [scans, setScans] = useState(demoData.scans)
   const [workspace, setWorkspace] = useState(demoData.workspace)
+
+  const [page, alertId] = route.slice(1).split('/')
+  const activePage = Object.hasOwn(pages, page) ? pages[page] : null
+  const selectedAlert =
+    page === 'alerts'
+      ? demoData.alerts.find((alert) => alert.id === alertId)
+      : null
+  const pageNotFound =
+    !activePage || (alertId && !selectedAlert) || route.split('/').length > 3
+
+  useEffect(() => {
+    function updateRoute() {
+      setRoute(window.location.hash.slice(1) || '/login')
+      if (window.innerWidth <= 700) setCollapsed(true)
+    }
+    if (!window.location.hash) window.location.replace('#/login')
+    window.addEventListener('hashchange', updateRoute)
+    return () => window.removeEventListener('hashchange', updateRoute)
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -46,8 +66,8 @@ function App() {
   }
 
   function navigate(page) {
-    setActivePage(page)
-    setSelectedAlert(null)
+    window.location.hash = '/' + page.toLowerCase()
+    if (window.innerWidth <= 700) setCollapsed(true)
   }
 
   function addScan(scan) {
@@ -66,22 +86,48 @@ function App() {
     ])
   }
 
+  if (route === '/login') {
+    return (
+      <Login
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onLogin={() => navigate('Overview')}
+      />
+    )
+  }
+
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault()
+          document.getElementById('main-content').focus()
+        }}
+      >
         Skip to content
       </a>
-      <Sidebar activePage={activePage} onNavigate={navigate} theme={theme} />
-      <div className="workspace">
-        <Header workspace={workspace} theme={theme} onToggleTheme={toggleTheme} />
+      <Header
+        workspace={workspace}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onNavigate={navigate}
+        collapsed={collapsed}
+        onToggleSidebar={() => setCollapsed(!collapsed)}
+        onSignOut={() => navigate('Login')}
+      />
+      <div className={`app-body${collapsed ? ' sidebar-collapsed' : ''}`}>
+        <Sidebar activePage={activePage} onNavigate={navigate} />
         <main className="main-content" id="main-content" tabIndex={-1}>
           <div className="page-heading">
-            <h1>{selectedAlert ? 'Alert Detail' : activePage}</h1>
-            <p>
-              {selectedAlert
-                ? ''
-                : descriptions[activePage]}
-            </p>
+            <h1>
+              {pageNotFound
+                ? 'Page not found'
+                : selectedAlert
+                  ? 'Alert Detail'
+                  : activePage}
+            </h1>
           </div>
           <div className="demo-notice hidden">
             <span className="demo-label">Demo mode</span>
@@ -89,29 +135,58 @@ function App() {
               Sample data only. No live monitoring, scans, or API connection.
             </p>
           </div>
-          {activePage === 'Overview' && (
-            <Overview data={demoData} onNavigate={navigate} />
-          )}
-          {activePage === 'Alerts' &&
-            (selectedAlert ? (
-              <AlertDetail
-                alert={selectedAlert}
-                onBack={() => setSelectedAlert(null)}
-              />
-            ) : (
-              <Alerts data={demoData} onSelect={setSelectedAlert} />
-            ))}
-          {activePage === 'Findings' && (
-            <Findings findings={demoData.findings} />
-          )}
-          {activePage === 'Scans' && (
-            <Scans scans={scans} onAddScan={addScan} />
-          )}
-          {activePage === 'Health' && (
-            <Health services={demoData.services} hosts={demoData.hosts} snapshotDate={demoData.snapshotDate} />
-          )}
-          {activePage === 'Settings' && (
-            <Settings workspace={workspace} onSave={setWorkspace} theme={theme} onToggleTheme={toggleTheme} />
+          {pageNotFound ? (
+            <section className="panel">
+              <p>This demo page does not exist.</p>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => navigate('Overview')}
+              >
+                Go to Overview
+              </button>
+            </section>
+          ) : (
+            <>
+              {activePage === 'Overview' && (
+                <Overview data={demoData} onNavigate={navigate} />
+              )}
+              {activePage === 'Alerts' &&
+                (selectedAlert ? (
+                  <AlertDetail
+                    alert={selectedAlert}
+                    onBack={() => navigate('Alerts')}
+                  />
+                ) : (
+                  <Alerts
+                    data={demoData}
+                    onSelect={(alert) => {
+                      window.location.hash = '/alerts/' + alert.id
+                    }}
+                  />
+                ))}
+              {activePage === 'Findings' && (
+                <Findings findings={demoData.findings} />
+              )}
+              {activePage === 'Scans' && (
+                <Scans scans={scans} onAddScan={addScan} />
+              )}
+              {activePage === 'Health' && (
+                <Health
+                  services={demoData.services}
+                  hosts={demoData.hosts}
+                  snapshotDate={demoData.snapshotDate}
+                />
+              )}
+              {activePage === 'Settings' && (
+                <Settings
+                  workspace={workspace}
+                  onSave={setWorkspace}
+                  theme={theme}
+                  onToggleTheme={toggleTheme}
+                />
+              )}
+            </>
           )}
         </main>
       </div>

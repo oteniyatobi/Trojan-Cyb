@@ -88,11 +88,9 @@ function Settings({ workspace, onSave, theme, onToggleTheme }) {
           <Badge>Not connected</Badge>
         </div>
         <p>
-          Groq integration is not configured. The demo uses example guidance
-          from the local JSON file.
-        </p>
+          Groq integration is not configured.</p>
         <p className="panel-caption">
-          No passwords or API keys are collected in this demo.
+
         </p>
       </section>
     </div>

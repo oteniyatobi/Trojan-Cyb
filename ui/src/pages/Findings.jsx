@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Badge from '../components/Badge.jsx'
+import Icon from '../components/Icon.jsx'
 
 function Findings({ findings }) {
   const [severity, setSeverity] = useState('All')
@@ -15,24 +16,33 @@ function Findings({ findings }) {
   return (
     <>
       <div className="kpi-grid compact-grid">
-        <article className="kpi-card">
+        <article className="kpi-card metric-card">
           <h2>Total Findings</h2>
           <p className="kpi-value">{findings.length}</p>
           <p className="kpi-description">Latest demo scan results</p>
+          <span className="metric-icon">
+            <Icon name="findings" />
+          </span>
         </article>
-        <article className="kpi-card tone-red">
+        <article className="kpi-card metric-card tone-red">
           <h2>Need Attention</h2>
           <p className="kpi-value">
             {findings.filter((finding) => finding.status !== 'Resolved').length}
           </p>
           <p className="kpi-description">Open or in review</p>
+          <span className="metric-icon">
+            <Icon name="warning" />
+          </span>
         </article>
-        <article className="kpi-card tone-green">
+        <article className="kpi-card metric-card tone-green">
           <h2>Resolved</h2>
           <p className="kpi-value">
             {findings.filter((finding) => finding.status === 'Resolved').length}
           </p>
           <p className="kpi-description">Reviewed by the demo team</p>
+          <span className="metric-icon">
+            <Icon name="check" />
+          </span>
         </article>
       </div>
       <div className="filters">
