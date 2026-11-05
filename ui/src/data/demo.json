@@ -1,0 +1,328 @@
+{
+  "snapshotDate": "5 November 2026",
+  "workspace": {
+    "name": "ALU University",
+    "organization": "Kigali Campus",
+    "user": "Tobi Jeremiah",
+    "role": "IT Administrator",
+    "email": "tobi@alueducation.com",
+    "timezone": "Africa/Kigali",
+    "notifications": true,
+    "weeklyReport": false
+  },
+  "overview": {
+    "period": "30 October – 5 November 2026",
+    "resolvedThisMonth": 12,
+    "briefing": "Review repeated sign-in failures on the accounts server, investigate an unrecognized process, and reconnect the reception workstation.",
+    "activity": [
+      { "day": "Fri", "events": 4 },
+      { "day": "Sat", "events": 7 },
+      { "day": "Sun", "events": 5 },
+      { "day": "Mon", "events": 11 },
+      { "day": "Tue", "events": 9 },
+      { "day": "Wed", "events": 8 },
+      { "day": "Thu", "events": 7 }
+    ],
+    "categories": [
+      { "name": "Sign-in", "count": 18 },
+      { "name": "Network", "count": 12 },
+      { "name": "Process", "count": 9 },
+      { "name": "Files", "count": 7 },
+      { "name": "Agent", "count": 5 }
+    ]
+  },
+  "alerts": [
+    {
+      "id": "ALT-001",
+      "time": "09:41",
+      "date": "2026-11-05",
+      "title": "Repeated failed sign-ins",
+      "host": "accounts-server",
+      "severity": "High",
+      "status": "Open",
+      "source": "Wazuh",
+      "rule": "5712",
+      "sourceIp": "192.0.2.45",
+      "evidence": "412 failed sign-in attempts from one address within 10 minutes.",
+      "explanation": "Repeated attempts may indicate someone is trying to guess an account password.",
+      "steps": [
+        "Review the server's sign-in history.",
+        "Check whether any attempt succeeded.",
+        "Ask the administrator to review account lockout and multi-factor authentication."
+      ]
+    },
+    {
+      "id": "ALT-002",
+      "time": "09:26",
+      "date": "2026-11-05",
+      "title": "Unrecognized executable",
+      "host": "staff-pc-04",
+      "severity": "Critical",
+      "status": "Open",
+      "source": "Wazuh",
+      "rule": "100201",
+      "sourceIp": "192.0.2.24",
+      "evidence": "A previously unseen executable started from the user's temporary folder.",
+      "explanation": "Programs launched from temporary folders need review, especially when the user does not recognize them.",
+      "steps": [
+        "Confirm whether the user installed new software.",
+        "Review the process path and file signature.",
+        "Follow your incident procedure if the file cannot be verified."
+      ]
+    },
+    {
+      "id": "ALT-003",
+      "time": "09:02",
+      "date": "2026-11-05",
+      "title": "Unusual outbound traffic",
+      "host": "edge-gateway",
+      "severity": "Medium",
+      "status": "In review",
+      "source": "Suricata",
+      "rule": "2001219",
+      "sourceIp": "192.0.2.1",
+      "evidence": "Outbound traffic exceeded the demo baseline for 15 minutes.",
+      "explanation": "A large transfer can be normal, but an unexpected destination should be checked.",
+      "steps": [
+        "Identify the destination and originating device.",
+        "Confirm whether a backup or software update was running."
+      ]
+    },
+    {
+      "id": "ALT-004",
+      "time": "08:45",
+      "date": "2026-11-05",
+      "title": "Monitoring agent disconnected",
+      "host": "reception-pc",
+      "severity": "Low",
+      "status": "Open",
+      "source": "Wazuh",
+      "rule": "504",
+      "sourceIp": "192.0.2.30",
+      "evidence": "The endpoint has not reported for 25 minutes.",
+      "explanation": "Monitoring has a gap while this endpoint is disconnected.",
+      "steps": [
+        "Check that the computer is powered on and connected.",
+        "Ask the administrator to check the monitoring agent."
+      ]
+    },
+    {
+      "id": "ALT-005",
+      "time": "08:12",
+      "date": "2026-11-05",
+      "title": "Sensitive configuration changed",
+      "host": "files-server",
+      "severity": "High",
+      "status": "In review",
+      "source": "Wazuh",
+      "rule": "550",
+      "sourceIp": "192.0.2.12",
+      "evidence": "File integrity monitoring detected a change to a protected configuration file.",
+      "explanation": "Configuration changes should match an approved maintenance task.",
+      "steps": [
+        "Review who changed the file.",
+        "Compare the change with the maintenance log."
+      ]
+    },
+    {
+      "id": "ALT-006",
+      "time": "07:58",
+      "date": "2026-11-05",
+      "title": "Suspicious privileged process",
+      "host": "accounts-server",
+      "severity": "Critical",
+      "status": "Open",
+      "source": "Wazuh",
+      "rule": "100202",
+      "sourceIp": "192.0.2.10",
+      "evidence": "A new process requested elevated permissions outside the maintenance window.",
+      "explanation": "Unexpected elevated processes may put financial records at risk.",
+      "steps": [
+        "Verify the process owner and purpose.",
+        "Escalate to your administrator if the activity is not approved."
+      ]
+    },
+    {
+      "id": "ALT-007",
+      "time": "07:34",
+      "date": "2026-11-05",
+      "title": "Network discovery activity",
+      "host": "edge-gateway",
+      "severity": "Medium",
+      "status": "Open",
+      "source": "Suricata",
+      "rule": "2000537",
+      "sourceIp": "192.0.2.60",
+      "evidence": "One device attempted connections to several internal ports.",
+      "explanation": "Discovery traffic may be an approved scan or an unexpected device exploring the network.",
+      "steps": [
+        "Check whether a scan was scheduled.",
+        "Identify the device before deciding on a response."
+      ]
+    },
+    {
+      "id": "ALT-008",
+      "time": "07:10",
+      "date": "2026-11-05",
+      "title": "Software update verified",
+      "host": "manager-laptop",
+      "severity": "Low",
+      "status": "Resolved",
+      "source": "Wazuh",
+      "rule": "100203",
+      "sourceIp": "192.0.2.40",
+      "evidence": "An application change matched an approved software update.",
+      "explanation": "The administrator verified this change as expected activity.",
+      "steps": ["Keep the update record with the incident notes."]
+    }
+  ],
+  "findings": [
+    {
+      "id": "FND-001",
+      "title": "Outdated web service",
+      "host": "accounts-server",
+      "severity": "High",
+      "status": "Open",
+      "tool": "Nuclei",
+      "guidance": "Review the installed version and schedule an approved update."
+    },
+    {
+      "id": "FND-002",
+      "title": "Missing browser security headers",
+      "host": "demo.example.test",
+      "severity": "Medium",
+      "status": "Open",
+      "tool": "Wapiti",
+      "guidance": "Ask the website administrator to review response headers."
+    },
+    {
+      "id": "FND-003",
+      "title": "Management port exposed internally",
+      "host": "files-server",
+      "severity": "High",
+      "status": "In review",
+      "tool": "Nuclei",
+      "guidance": "Limit management access to approved administrators."
+    },
+    {
+      "id": "FND-004",
+      "title": "Legacy TLS configuration",
+      "host": "edge-gateway",
+      "severity": "Medium",
+      "status": "Resolved",
+      "tool": "Nuclei",
+      "guidance": "The demo administrator updated the TLS configuration."
+    },
+    {
+      "id": "FND-005",
+      "title": "Application version disclosed",
+      "host": "demo.example.test",
+      "severity": "Low",
+      "status": "Resolved",
+      "tool": "Wapiti",
+      "guidance": "Version details were removed from the demo response headers."
+    }
+  ],
+  "scans": [
+    {
+      "id": "SCN-003",
+      "target": "demo.example.test",
+      "tool": "Wapiti",
+      "status": "Queued",
+      "requested": "2026-11-05 09:30",
+      "findings": null
+    },
+    {
+      "id": "SCN-002",
+      "target": "192.0.2.0/24",
+      "tool": "Nuclei",
+      "status": "Running",
+      "requested": "2026-11-05 09:15",
+      "findings": null
+    },
+    {
+      "id": "SCN-001",
+      "target": "demo.example.test",
+      "tool": "Nuclei",
+      "status": "Completed",
+      "requested": "2026-11-05 08:30",
+      "findings": 5
+    }
+  ],
+  "hosts": [
+    {
+      "id": "HST-001",
+      "name": "accounts-server",
+      "ip": "192.0.2.10",
+      "system": "Ubuntu 24.04",
+      "status": "Online",
+      "lastSeen": "09:45"
+    },
+    {
+      "id": "HST-002",
+      "name": "files-server",
+      "ip": "192.0.2.12",
+      "system": "Ubuntu 24.04",
+      "status": "Online",
+      "lastSeen": "09:45"
+    },
+    {
+      "id": "HST-003",
+      "name": "staff-pc-04",
+      "ip": "192.0.2.24",
+      "system": "Windows 11",
+      "status": "Online",
+      "lastSeen": "09:44"
+    },
+    {
+      "id": "HST-004",
+      "name": "reception-pc",
+      "ip": "192.0.2.30",
+      "system": "Windows 11",
+      "status": "Offline",
+      "lastSeen": "08:45"
+    },
+    {
+      "id": "HST-005",
+      "name": "manager-laptop",
+      "ip": "192.0.2.40",
+      "system": "Windows 11",
+      "status": "Online",
+      "lastSeen": "09:44"
+    },
+    {
+      "id": "HST-006",
+      "name": "edge-gateway",
+      "ip": "192.0.2.1",
+      "system": "Linux",
+      "status": "Online",
+      "lastSeen": "09:45"
+    }
+  ],
+  "services": [
+    {
+      "name": "Wazuh",
+      "status": "Healthy",
+      "description": "Host monitoring and detection rules",
+      "detail": "Last demo check: 09:45"
+    },
+    {
+      "name": "Suricata",
+      "status": "Healthy",
+      "description": "Network traffic monitoring",
+      "detail": "Last demo check: 09:45"
+    },
+    {
+      "name": "Local AI",
+      "status": "Healthy",
+      "description": "Local analysis and response guidance",
+      "detail": "Model version: demo-1.0"
+    },
+    {
+      "name": "Groq",
+      "status": "Not connected",
+      "description": "Optional external advice service",
+      "detail": "Local guidance remains available in the demo"
+    }
+  ]
+}
