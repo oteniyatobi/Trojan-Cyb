@@ -42,6 +42,8 @@ MEDIUM_CATEGORIES = {
     "Internal Server Error",
 }
 
+COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dvwa_cookies.json")
+
 def run_wapiti_scan(target_url: str) -> list:
     findings = []
 
@@ -50,7 +52,6 @@ def run_wapiti_scan(target_url: str) -> list:
     temp_report_path = temp_report.name
     temp_report.close()
 
-    COOKIE_FILE = "/tmp/dvwa_cookies.json"
 
     command = [
         "wapiti",
@@ -72,8 +73,17 @@ def run_wapiti_scan(target_url: str) -> list:
             with open(temp_report_path, 'r') as report_file:
                 data = json.load(report_file)
 
-                vulnerabirities = data.get("vulnerabilities", {})
-                for category, issues in vulnerabirities.items():
+                info = data.get("infos", {})
+                pages = info.get("crawled_pages_nbr", 0)
+                #auth = info.get("auth")
+                if pages <= 1:
+                    print(f"WARNING: Wapiti crawled only {pages} page(s). The session is "
+                        f"likely expired or the target redirected to a login page. "
+                        f"Regenerate dvwa_cookies.json and re-run.")
+                    return findings
+
+                vulnerabilities = data.get("vulnerabilities", {})
+                for category, issues in vulnerabilities.items():
                     #wapiti categories
                     if category in CRITICAL_CATEGORIES:
                         severity = "critical"
