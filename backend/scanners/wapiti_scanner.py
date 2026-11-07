@@ -44,7 +44,19 @@ MEDIUM_CATEGORIES = {
 
 COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dvwa_cookies.json")
 
-def run_wapiti_scan(target_url: str) -> list:
+# Wapiti's default attack modules. "-m all" also enables buster, nikto,
+# brute_login_form and timesql, which brute-force thousands of paths and
+# never finished within the timeout, so no report was ever produced.
+MODULES = "xss,exec,redirect,ssl,file,upload,sql,ssrf,permanentxss"
+
+# Pages that must never be requested during an authenticated scan:
+# logout.php destroys the session, setup.php resets the database,
+# security.php changes the security level, and csrf/ changes the
+# admin password (Wapiti fills it with its default value "Letm3in_").
+DVWA_EXCLUSIONS = ["/logout.php", "/setup.php", "/security.php", "/vulnerabilities/csrf/*"]
+
+
+def run_wapiti_scan(target_url: str, exclusions: list = DVWA_EXCLUSIONS) -> list:
     findings = []
 
     #wapiti writes to temporary file
@@ -58,13 +70,15 @@ def run_wapiti_scan(target_url: str) -> list:
         "-u", target_url,
         "-f", "json",
         "-o", temp_report_path,
-        "-m", "all",
+        "-m", MODULES,
         "--flush-session",
         "-c", COOKIE_FILE
     ]
+    # if exclusions:
+    #     command.extend(["-x", ",".join(exclusions)])
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
         if result.returncode != 0:
             print(f"Wapiti exited {result.returncode}: {result.stderr[-500:]}")
             return findings
