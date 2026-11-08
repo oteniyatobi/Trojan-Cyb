@@ -1,4 +1,6 @@
 import os
+import json
+from groq_review import get_review, check_review
 from flask import Flask,  request, jsonify
 from dotenv import load_dotenv
 load_dotenv()
@@ -30,9 +32,19 @@ def analyze():
         for alert in data['alerts']:
             if not isinstance(alert, dict):
                 return jsonify({'error': 'Each alert must be a JSON object'}), 422
-            results.append({'llm_review': {'status': 'pending'}})
+            try:
+                review = get_review(json.dumps(alert))
+                problems = check_review(review)
+                if not problems:
+                    review['status'] = 'done'
+                    results.append({'llm_review': review})
+                else:
+                    results.append({'llm_review': {'status': 'unavailable', 'problems': problems}})
+            except Exception as e:
+                print(f"Grok Call Failed: {e}")
+                results.append({'llm_review': {'status': 'unavailable', 'problems': [str(e)]}})
         return jsonify({'results': results}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    app.run(debug=True, host='0.0.0.0', port=8000)
 
