@@ -2,6 +2,7 @@ import subprocess
 import json
 import tempfile
 import os
+from urllib.parse import urlparse
 
 
 CRITICAL_CATEGORIES = {
@@ -53,10 +54,10 @@ MODULES = "xss,exec,redirect,ssl,file,upload,sql,ssrf,permanentxss"
 # logout.php destroys the session, setup.php resets the database,
 # security.php changes the security level, and csrf/ changes the
 # admin password (Wapiti fills it with its default value "Letm3in_").
-DVWA_EXCLUSIONS = ["/logout.php", "/setup.php", "/security.php", "/vulnerabilities/csrf/*"]
+DVWA_EXCLUSIONS = ("/logout.php", "/setup.php", "/security.php", "/vulnerabilities/csrf/*")
 
 
-def run_wapiti_scan(target_url: str, exclusions: list = DVWA_EXCLUSIONS) -> list:
+def run_wapiti_scan(target_url: str, exclusions=DVWA_EXCLUSIONS) -> list:
     findings = []
 
     #wapiti writes to temporary file
@@ -74,8 +75,11 @@ def run_wapiti_scan(target_url: str, exclusions: list = DVWA_EXCLUSIONS) -> list
         "--flush-session",
         "-c", COOKIE_FILE
     ]
-    # if exclusions:
-    #     command.extend(["-x", ",".join(exclusions)])
+    if exclusions:
+        parsed = urlparse(target_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        for path in exclusions:
+            command.extend(["-x", origin + path])
 
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
