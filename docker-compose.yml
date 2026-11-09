@@ -35,7 +35,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgres://${DB_USER:-app}:${DB_PASSWORD:-app_password}@db:5432/${DB_NAME:-app_db}
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-app}:${DB_PASSWORD:-app_password}@db:5432/${DB_NAME:-app_db}
       REDIS_URL: redis://redis:6379
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
