@@ -29,29 +29,38 @@ services:
       timeout: 3s
       retries: 10
 
-  # Backend placeholder: replies on http://localhost:8000
-  # Replace `image` with `build: ./backend` once the backend exists.
+  # Backend (Flask API, built from ./backend). http://localhost:8000/v1/health
   backend:
-    image: traefik/whoami
+    build: ./backend
     ports:
-      - "8000:80"
+      - "8000:8000"
     environment:
       DATABASE_URL: postgres://${DB_USER:-app}:${DB_PASSWORD:-app_password}@db:5432/${DB_NAME:-app_db}
       REDIS_URL: redis://redis:6379
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      GROQ_TIMEOUT_SECONDS: ${GROQ_TIMEOUT_SECONDS:-15}
+      GROQ_MAX_RETRIES: ${GROQ_MAX_RETRIES:-3}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
 
-  # Dashboard placeholder: serves a page on http://localhost:3000
-  # Replace `image` with `build: ./dashboard` once the dashboard exists.
+  # Dashboard (React/Vite build served by nginx, built from ./ui). http://localhost:3000
   dashboard:
-    image: nginx:alpine
+    build: ./ui
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   db_data:
