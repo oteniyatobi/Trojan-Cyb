@@ -1,0 +1,9 @@
+.env
+*.env
+__pycache__/
+*.pyc
+scanners/
+*.pdf
+*.png
+test_alert.json
+groq_test.py

@@ -117,7 +117,7 @@ jobs:
 
       - name: Run tests
         if: steps.detect.outputs.exists == 'true'
-        run: pytest --cov=. --cov-report=term-missing
+        run: pytest --cov=. --cov-report=term-missing || [ $? -eq 5 ]  # exit 5 = no tests collected yet
 
   frontend-lint:
     name: Frontend Linting
