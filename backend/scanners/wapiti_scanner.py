@@ -48,6 +48,7 @@ COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dvwa_coo
 # Wapiti's default attack modules. "-m all" also enables buster, nikto,
 # brute_login_form and timesql, which brute-force thousands of paths and
 # never finished within the timeout, so no report was ever produced.
+#Ran during test with DVWA(Damn Vulnerable Web App)
 MODULES = "xss,exec,redirect,ssl,file,upload,sql,ssrf,permanentxss"
 
 # Pages that must never be requested during an authenticated scan:
