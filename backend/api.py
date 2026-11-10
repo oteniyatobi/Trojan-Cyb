@@ -2,9 +2,10 @@ import os
 import json
 import uuid
 import logging
+from datetime import datetime
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, joinedload
 from groq_review import get_review, check_review
 from flask import Flask,  request, jsonify
 from dotenv import load_dotenv
@@ -39,6 +40,29 @@ def handle_integrity_error(e):
 MAX_ALERTS = 1000
 
 #HELPERS
+def _obj(value) -> dict:
+    """Return value if it is a dict, else {} (Wazuh fields may be null)."""
+    return value if isinstance(value, dict) else {}
+
+
+def _to_int(value):
+    """Suricata sends numbers as strings ("80", "3"); return int or None."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_time(value):
+    """Parse Wazuh's timestamp (e.g. 2026-11-03T09:55:15.767+0000)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def alert_to_dict(alert: Alert) -> dict:
     """Serialise an Alert and its optional Review for the dashboard."""
     d = {
@@ -50,6 +74,19 @@ def alert_to_dict(alert: Alert) -> dict:
         "description": alert.description,
         "src_ip": alert.src_ip,
         "agent_name": alert.agent_name,
+        "event_time": alert.event_time.isoformat() if alert.event_time else None,
+        "signature_id": alert.signature_id,
+        "signature_name": alert.signature_name,
+        "suricata_sev": alert.suricata_sev,
+        "dest_ip": alert.dest_ip,
+        "dest_port": alert.dest_port,
+        "proto": alert.proto,
+        "fired_times": alert.fired_times,
+        "rule_groups": alert.rule_groups,
+        "agent_id": alert.agent_id,
+        "manager_name": alert.manager_name,
+        "decoder_name": alert.decoder_name,
+        "location": alert.location,
         "status": alert.status,
         "review_status": alert.review_status,
     }
@@ -111,14 +148,46 @@ def analyze():
                 wazuh_id = (payload.get("id") or payload.get("wazuh_id")
                             or f"generated-{uuid.uuid4()}")
 
+                # Wazuh nests the original event under "data"; for Suricata
+                # alerts the signature lives in data.alert. Any block can be
+                # missing or null depending on the decoder.
+                rule = _obj(payload.get("rule"))
+                data_block = _obj(payload.get("data"))
+                agent = _obj(payload.get("agent"))
+                manager = _obj(payload.get("manager"))
+                decoder = _obj(payload.get("decoder"))
+                suricata_alert = _obj(data_block.get("alert"))
+
+                groups = rule.get("groups")
+                rule_id = rule.get("id")
+                signature_id = suricata_alert.get("signature_id")
+
                 alert = Alert(
                     org_id=DEFAULT_ORG_ID,
-                    wazuh_id=wazuh_id,
-                    rule_id=str(payload.get("rule", {}).get("id", "")) or None,
-                    rule_level=payload.get("rule", {}).get("level"),
-                    description=payload.get("rule", {}).get("description") or payload.get("description"),
-                    src_ip=payload.get("src_ip") or payload.get("data", {}).get("srcip"),
-                    agent_name=payload.get("agent", {}).get("name"),
+                    wazuh_id=str(wazuh_id),
+                    event_time=_to_time(payload.get("timestamp")),
+                    rule_id=str(rule_id) if rule_id is not None else None,
+                    rule_level=_to_int(rule.get("level")),
+                    rule_groups=groups if isinstance(groups, list) else None,
+                    # Suricata's own id (e.g. 1000002); Wazuh's rule_id is the
+                    # generic 86601 "Suricata: Alert" for every signature.
+                    signature_id=str(signature_id) if signature_id is not None else None,
+                    signature_name=suricata_alert.get("signature"),
+                    # Suricata severity: 1 = highest, 3 = lowest.
+                    suricata_sev=_to_int(suricata_alert.get("severity")),
+                    fired_times=_to_int(rule.get("firedtimes")) or 1,
+                    description=rule.get("description") or payload.get("description"),
+                    src_ip=(data_block.get("src_ip") or data_block.get("srcip")
+                            or payload.get("src_ip")),
+                    dest_ip=(data_block.get("dest_ip") or data_block.get("dstip")
+                             or payload.get("dest_ip")),
+                    dest_port=_to_int(data_block.get("dest_port") or data_block.get("dstport")),
+                    proto=data_block.get("proto") or data_block.get("protocol"),
+                    agent_id=agent.get("id"),
+                    agent_name=agent.get("name"),
+                    manager_name=manager.get("name"),
+                    decoder_name=decoder.get("name"),
+                    location=payload.get("location"),
                     raw=payload,
                     status="new",
                     review_status="pending",
@@ -191,18 +260,21 @@ def analyze():
 
 @app.route('/v1/alerts', methods=['GET'])
 def list_alerts():
-    limit = min(int(request.args.get('limit', 100)), 500)
-    offset = int(request.args.get('offset', 0))
+    try:
+        limit = min(max(int(request.args.get('limit', 100)), 1), 500)
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except ValueError:
+        return jsonify({"error": "limit and offset must be integers"}), 400
     severity = request.args.get('severity')
 
     session = Session()
     try:
-        query = session.query(Alert).order_by(Alert.id.desc())
+        query = session.query(Alert).options(joinedload(Alert.review))
         if severity: #filter by severity if provided
             query = query.join(Review, isouter=True).filter(Review.severity == severity)
 
-        rows = query.offset(offset).limit(limit).all()
-        total = session.query(Alert).count()
+        total = query.count()
+        rows = (query.order_by(Alert.id.desc()).offset(offset).limit(limit).all())
         return jsonify({
             'alerts': [alert_to_dict(alert) for alert in rows],
             'total': total,
