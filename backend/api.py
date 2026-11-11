@@ -27,32 +27,41 @@ DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
     "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
 ))
 
+app = Flask(__name__)
+
+logger = logging.getLogger(__name__)
+
+
 # TROJAN_SECRET_KEY encrypts the Groq key before it is stored in
 # settings.value. It is separate from TROJAN_API_KEY (Wazuh ingest)
 # and TROJAN_ADMIN_KEY (admin UI). Rotating it requires decrypting
 # and re-encrypting the stored key.
 SECRET_KEY = os.environ.get("TROJAN_SECRET_KEY", "").encode()
+cipher = None
 if SECRET_KEY:
-    cipher = Fernet(SECRET_KEY)
-else:
-    cipher = None
+    try:
+        cipher = Fernet(SECRET_KEY)
+    except (ValueError, TypeError) as e:
+        logger.warning("TROJAN_SECRET_KEY is invalid (%s); admin key storage disabled", e)
 
 # TROJAN_ADMIN_KEY authorizes /v1/settings/groq-key. Separate from the
 # ingest key so Wazuh's copy in ossec.conf cannot reach the admin API.
 ADMIN_KEY = os.environ.get("TROJAN_ADMIN_KEY", "")
 
 
-app = Flask(__name__)
-
-logger = logging.getLogger(__name__)
-
 @app.before_request
 def check_api_key():
-    """Require the shared key on every endpoint except health and settings"""
-    if request.path == "/v1/health":
+    """Require TROJAN_API_KEY on the ingest endpoint only.
+
+    /v1/analyze is the machine-to-machine ingest route that Wazuh posts
+    to. Everything else:
+    - /v1/health: open for monitoring
+    - /v1/settings/*: protected by _require_admin(), a separate key
+    - /v1/alerts, /v1/alerts/<id>: open on the internal network, reached
+      only through the nginx proxy on :3000 which is not exposed externally
+    """
+    if request.method != "POST" or request.path != "/v1/analyze":
         return
-    if request.path.startswith("/v1/settings/"):
-        return  # checked inside the endpoint with _require_admin()
     expected = os.environ.get("TROJAN_API_KEY")
     if not expected:
         return
@@ -70,7 +79,7 @@ def _require_admin():
     a leaked ingest key cannot reach the admin API
     """
     if not ADMIN_KEY:
-        return None
+        return jsonify({"error": "admin key not configured"}), 503
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if not hmac.compare_digest(token.encode(), ADMIN_KEY.encode()):
@@ -356,12 +365,15 @@ def set_groq_key():
     if cipher is None:
         return jsonify({"error": "TROJAN_SECRET_KEY is not set"}), 503
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
     key = data.get("key", "")
-    if not isinstance(key, str) or len(key) < 8:
-        return jsonify({"error": "key must be a non-empty string of atleast 10 characters"}), 422
-    if not key.startswith("gsk_"):
+    if not isinstance(key, str) or not key.startswith("gsk_"):
         return jsonify({"error": "key must start with 'gsk_'"}), 422
+
+    if len(key) < 50:
+        return jsonify({"error": "key must be at least 50 characters"}), 422
 
     encrypted = cipher.encrypt(key.encode()).decode()
     session = Session()
