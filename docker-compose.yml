@@ -43,6 +43,8 @@ services:
       GROQ_TIMEOUT_SECONDS: ${GROQ_TIMEOUT_SECONDS:-15}
       GROQ_MAX_RETRIES: ${GROQ_MAX_RETRIES:-3}
       TROJAN_API_KEY: ${TROJAN_API_KEY:-}
+      TROJAN_ADMIN_KEY: ${TROJAN_ADMIN_KEY:-}
+      TROJAN_SECRET_KEY: ${TROJAN_SECRET_KEY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health')"]
       interval: 10s
