@@ -1,22 +1,34 @@
-CREATE TABLE alerts (
+CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     org_id UUID NOT NULL,
     wazuh_id TEXT UNIQUE NOT NULL,
     received_at TIMESTAMPTZ DEFAULT NOW(),
+    event_time TIMESTAMPTZ,
     rule_id TEXT,
     rule_level INTEGER,
+    rule_groups JSONB,
+    signature_id TEXT,
+    signature_name TEXT,
+    suricata_sev INTEGER,
+    fired_times INTEGER DEFAULT 1,
     description TEXT,
     src_ip TEXT,
     dest_ip TEXT,
+    dest_port INTEGER,
+    proto TEXT,
+    agent_id TEXT,
     agent_name TEXT,
+    manager_name TEXT,
+    decoder_name TEXT,
+    location TEXT,
     raw JSONB,
     status TEXT DEFAULT 'new',
     review_status TEXT DEFAULT 'pending'
 );
 
-CREATE TABLE reviews (
+CREATE TABLE IF NOT EXISTS reviews (
     id SERIAL PRIMARY KEY,
-    alert_id INTEGER REFERENCES alerts(id) ON DELETE CASCADE,
+    alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
     attack_type TEXT,
     severity TEXT,
     headline TEXT,
@@ -29,7 +41,7 @@ CREATE TABLE reviews (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE scans (
+CREATE TABLE IF NOT EXISTS scans (
     id SERIAL PRIMARY KEY,
     org_id UUID NOT NULL,
     target TEXT NOT NULL,
@@ -42,7 +54,7 @@ CREATE TABLE scans (
     error TEXT
 );
 
-CREATE TABLE findings (
+CREATE TABLE IF NOT EXISTS findings (
     id SERIAL PRIMARY KEY,
     org_id UUID NOT NULL,
     scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
@@ -58,13 +70,13 @@ CREATE TABLE findings (
     status TEXT DEFAULT 'new'
 );
 
-CREATE TABLE settings (
+CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     is_secret BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id SERIAL PRIMARY KEY,
     who TEXT,
     action TEXT,
@@ -72,8 +84,10 @@ CREATE TABLE audit_log (
     at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_alerts_org ON alerts(org_id);
-CREATE INDEX idx_alerts_received ON alerts(received_at DESC);
-CREATE INDEX idx_findings_scan ON findings(scan_id);
-CREATE INDEX idx_findings_org ON findings(org_id);
-CREATE INDEX idx_reviews_alert ON reviews(alert_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_org ON alerts(org_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_received ON alerts(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_signature ON alerts(signature_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_event_time ON alerts(event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
+CREATE INDEX IF NOT EXISTS idx_findings_org ON findings(org_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_alert ON reviews(alert_id);
