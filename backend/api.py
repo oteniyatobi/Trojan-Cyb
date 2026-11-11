@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from models import Alert, Review
 load_dotenv()
 
-#Database
+# Database
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set.")
@@ -53,7 +53,7 @@ def handle_integrity_error(e):
 
 MAX_ALERTS = 1000
 
-#HELPERS
+# HELPERS
 def _obj(value) -> dict:
     """Return value if it is a dict, else {} (Wazuh fields may be null)."""
     return value if isinstance(value, dict) else {}
@@ -130,9 +130,13 @@ def health():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             db_ok = True
-    except Exception as e:
+    except Exception:
         pass
-    return jsonify({'status': 'ok', 'groq': 'set' if key is not None and key != '' else 'not set', 'database': 'ok' if db_ok else 'unavailable'}), 200
+    return jsonify({
+        'status': 'ok',
+        'groq': 'set' if key else 'not set',
+        'database': 'ok' if db_ok else 'unavailable',
+    }), 200
 
 
 @app.route('/v1/analyze', methods=['POST'])
@@ -245,7 +249,6 @@ def analyze():
                 alert.review_status = "done"
                 session.commit()
 
-
                 results.append({
                     "id": alert.id,
                     "wazuh_id": alert.wazuh_id,
@@ -264,7 +267,7 @@ def analyze():
                 "error": "duplicate alert",
                 "detail": "This wazuh_id is already stored.", 
             }), 409
-        except Exception as e:
+        except Exception:
             session.rollback()
             logger.exception("analyze failed")
             return jsonify({"error": "internal error"}), 500
@@ -284,7 +287,7 @@ def list_alerts():
     session = Session()
     try:
         query = session.query(Alert).options(joinedload(Alert.review))
-        if severity: #filter by severity if provided
+        if severity:  # filter by severity if provided
             query = query.join(Review, isouter=True).filter(Review.severity == severity)
 
         total = query.count()

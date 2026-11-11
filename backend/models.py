@@ -5,8 +5,6 @@ these models exist so the API and the scan worker can read and write
 rows in Python rather than raw SQL.
 """
 
-from datetime import datetime
-
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func,
 )
