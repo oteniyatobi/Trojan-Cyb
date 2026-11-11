@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-app_password}
       POSTGRES_DB: ${DB_NAME:-app_db}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -21,7 +21,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://${DB_USER:-app}:${DB_PASSWORD:-app_password}@db:5432/${DB_NAME:-app_db}
       REDIS_URL: redis://redis:6379
@@ -61,7 +61,7 @@ services:
   dashboard:
     build: ./ui
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       backend:
         condition: service_healthy

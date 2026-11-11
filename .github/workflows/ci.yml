@@ -86,7 +86,7 @@ jobs:
         ports:
           - 6379:6379
     env:
-      DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+      DATABASE_URL: postgresql+psycopg://testuser:testpass@localhost:5432/testdb
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
