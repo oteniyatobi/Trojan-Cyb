@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE TABLE IF NOT EXISTS reviews (
     id SERIAL PRIMARY KEY,
-    alert_id INTEGER REFERENCES alerts(id) ON DELETE CASCADE,
+    alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
     attack_type TEXT,
     severity TEXT,
     headline TEXT,
