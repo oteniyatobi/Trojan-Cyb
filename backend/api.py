@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import logging
+import hmac
 from datetime import datetime
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +30,19 @@ DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
 app = Flask(__name__)
 
 logger = logging.getLogger(__name__)
+
+@app.before_request
+def check_api_key():
+    """Require the shared key on every endpoint except health"""
+    if request.path == "/v1/health":
+        return
+    expected = os.environ.get("TROJAN_API_KEY")
+    if not expected:
+        return
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not hmac.compare_digest(token.encode(), expected.encode()):
+        return jsonify({"error": "unauthorized"}), 401
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
