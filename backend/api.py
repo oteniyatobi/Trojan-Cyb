@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 @app.before_request
 def check_api_key():
-    """Require the shared key on every endpoint except health"""
+    """Require the shared key on every endpoint except health and settings"""
     if request.path == "/v1/health":
         return
     if request.path.startswith("/v1/settings/"):
@@ -349,7 +349,7 @@ def get_alert(alert_id):
 
 
 @app.route('/v1/settings/groq-key', methods=['PUT'])
-def set_grop_key():
+def set_groq_key():
     denied = _require_admin()
     if denied:
         return denied
