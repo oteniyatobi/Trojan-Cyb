@@ -74,7 +74,7 @@ def _db_session():
     global _Session
     if _Session is None:
         engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True,
-                               connect_args={"connect_timeout": 5})
+                               connect_args={"connect_timeout": 5, "options": "-c app.org_id=00000000-0000-0000-0000-000000000001"})
         _Session = sessionmaker(bind=engine)
     return _Session()
 

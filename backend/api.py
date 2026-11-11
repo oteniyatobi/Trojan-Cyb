@@ -18,7 +18,7 @@ load_dotenv()
 DATABASE_URL = os.getenv('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set.")
-engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 5})
+engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 5, "options": "-c app.org_id=00000000-0000-0000-0000-000000000001"})
 Session = sessionmaker(bind=engine)
 
 # Single-tenant prototype: every row gets the same org UUID. When

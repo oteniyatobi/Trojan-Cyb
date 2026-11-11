@@ -166,3 +166,81 @@ CREATE INDEX IF NOT EXISTS idx_alerts_event_time ON alerts(event_time DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_findings_org ON findings(org_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_alert ON reviews(alert_id);
+
+-- The application connects as app_rls, not app. app is the POSTGRES_USER
+-- and a superuser, and Postgres skips RLS for superusers regardless of
+-- FORCE ROW LEVEL SECURITY. app_rls is a normal role with no BYPASSRLS
+-- and no ownership, so the policies apply.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rls') THEN
+        CREATE ROLE app_rls NOINHERIT LOGIN PASSWORD 'app_rls_password';
+    END IF;
+END$$;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_rls;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_rls;
+GRANT USAGE ON SCHEMA public TO app_rls;
+
+-- ---------------------------------------------------------------------------
+-- Row-Level Security: every tenant-scoped table filters on app.org_id.
+-- The application's engine sets app.org_id via connect_args (see api.py).
+-- FORCE makes the policy apply even to the table owner, so the demo
+-- connection (which owns these tables) still cannot see other orgs' rows.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE alerts       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE alerts       FORCE  ROW LEVEL SECURITY;
+ALTER TABLE reviews      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews      FORCE  ROW LEVEL SECURITY;
+ALTER TABLE scans        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scans        FORCE  ROW LEVEL SECURITY;
+ALTER TABLE findings     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE findings     FORCE  ROW LEVEL SECURITY;
+ALTER TABLE settings     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settings     FORCE  ROW LEVEL SECURITY;
+ALTER TABLE audit_log    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log    FORCE  ROW LEVEL SECURITY;
+ALTER TABLE users        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users        FORCE  ROW LEVEL SECURITY;
+ALTER TABLE computers    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE computers    FORCE  ROW LEVEL SECURITY;
+ALTER TABLE incidents    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE incidents    FORCE  ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS org_isolation_alerts    ON alerts;
+DROP POLICY IF EXISTS org_isolation_reviews   ON reviews;
+DROP POLICY IF EXISTS org_isolation_scans     ON scans;
+DROP POLICY IF EXISTS org_isolation_findings  ON findings;
+DROP POLICY IF EXISTS org_isolation_settings  ON settings;
+DROP POLICY IF EXISTS org_isolation_audit_log ON audit_log;
+DROP POLICY IF EXISTS org_isolation_users     ON users;
+DROP POLICY IF EXISTS org_isolation_computers ON computers;
+DROP POLICY IF EXISTS org_isolation_incidents ON incidents;
+
+CREATE POLICY org_isolation_alerts ON alerts
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_reviews ON reviews
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_scans ON scans
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_findings ON findings
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_settings ON settings
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_audit_log ON audit_log
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_users ON users
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_computers ON computers
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+CREATE POLICY org_isolation_incidents ON incidents
+    USING (org_id = current_setting('app.org_id', true)::uuid);
