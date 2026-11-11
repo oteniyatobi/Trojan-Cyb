@@ -10,7 +10,8 @@ from sqlalchemy.orm import sessionmaker, joinedload
 from groq_review import get_review, check_review
 from flask import Flask,  request, jsonify
 from dotenv import load_dotenv
-from models import Alert, Review
+from models import Alert, Review, Setting
+from cryptography.fernet import Fernet, InvalidToken
 load_dotenv()
 
 # Database
@@ -26,6 +27,20 @@ DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
     "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
 ))
 
+# TROJAN_SECRET_KEY encrypts the Groq key before it is stored in
+# settings.value. It is separate from TROJAN_API_KEY (Wazuh ingest)
+# and TROJAN_ADMIN_KEY (admin UI). Rotating it requires decrypting
+# and re-encrypting the stored key.
+SECRET_KEY = os.environ.get("TROJAN_SECRET_KEY", "").encode()
+if SECRET_KEY:
+    cipher = Fernet(SECRET_KEY)
+else:
+    cipher = None
+
+# TROJAN_ADMIN_KEY authorizes /v1/settings/groq-key. Separate from the
+# ingest key so Wazuh's copy in ossec.conf cannot reach the admin API.
+ADMIN_KEY = os.environ.get("TROJAN_ADMIN_KEY", "")
+
 
 app = Flask(__name__)
 
@@ -36,6 +51,8 @@ def check_api_key():
     """Require the shared key on every endpoint except health"""
     if request.path == "/v1/health":
         return
+    if request.path.startswith("/v1/settings/"):
+        return  # checked inside the endpoint with _require_admin()
     expected = os.environ.get("TROJAN_API_KEY")
     if not expected:
         return
@@ -43,6 +60,23 @@ def check_api_key():
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if not hmac.compare_digest(token.encode(), expected.encode()):
         return jsonify({"error": "unauthorized"}), 401
+
+
+def _require_admin():
+    """return a [json, status] tuple to reject, or NOne to allow
+
+    Uses TROJAN_ADMIN_KEY and not TROJAN_API_KEY.
+    Admin endpoints are separate from wazuh ingest path so
+    a leaked ingest key cannot reach the admin API
+    """
+    if not ADMIN_KEY:
+        return None
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not hmac.compare_digest(token.encode(), ADMIN_KEY.encode()):
+        return jsonify({"error": "unauthorized"}), 401
+    return None
+
 
 @app.errorhandler(IntegrityError)
 def handle_integrity_error(e):
@@ -312,6 +346,89 @@ def get_alert(alert_id):
         return jsonify(alert_to_dict(alert)), 200
     finally:
         session.close()
+
+
+@app.route('/v1/settings/groq-key', methods=['PUT'])
+def set_grop_key():
+    denied = _require_admin()
+    if denied:
+        return denied
+    if cipher is None:
+        return jsonify({"error": "TROJAN_SECRET_KEY is not set"}), 503
+
+    data = request.get_json(silent=True) or {}
+    key = data.get("key", "")
+    if not isinstance(key, str) or len(key) < 8:
+        return jsonify({"error": "key must be a non-empty string of atleast 10 characters"}), 422
+    if not key.startswith("gsk_"):
+        return jsonify({"error": "key must start with 'gsk_'"}), 422
+
+    encrypted = cipher.encrypt(key.encode()).decode()
+    session = Session()
+
+    try:
+        setting = session.query(Setting).filter_by(key="groq_api_key").one_or_none()
+
+        if setting is None:
+            setting = Setting(key="groq_api_key", value=encrypted, is_secret=True)
+            session.add(setting)
+        else:
+            setting.value = encrypted
+
+        session.commit()
+        return jsonify({"set": True, "last4": key[-4:]}), 200
+    finally:
+        session.close()
+
+
+@app.route('/v1/settings/groq-key', methods=['GET'])
+def get_groq_key_status():
+    denied = _require_admin()
+    if denied:
+        return denied
+
+    session = Session()
+    try:
+        setting = session.query(Setting).filter_by(key="groq_api_key").one_or_none()
+        if setting is None:
+            env_key = os.environ.get("GROQ_API_KEY", "")
+            return jsonify({
+                "set": bool(env_key),
+                "source": "env" if env_key else "none",
+                "last4": env_key[-4:] if env_key else None,
+            }), 200
+
+        if cipher is None:
+            return jsonify({"error": "TROJAN_SECRET_KEY is not set"}), 503
+
+        try:
+            decrypted = cipher.decrypt(setting.value.encode()).decode()
+        except InvalidToken:
+            return jsonify({"error": "stored key can not be decrypted"}), 500
+        return jsonify({
+            "set": True,
+            "source": "database",
+            "last4": decrypted[-4:],
+        }), 200
+    finally:
+        session.close()
+
+
+@app.route('/v1/settings/groq-key', methods=['DELETE'])
+def delete_groq_key():
+    denied = _require_admin()
+    if denied:
+        return denied
+
+    session = Session()
+
+    try:
+        deleted = session.query(Setting).filter_by(key="groq_api_key").delete()
+        session.commit()
+        return jsonify({"deleted": deleted > 0, "fallback": "env"}), 200
+    finally:
+        session.close()
+
 
 
 if __name__ == '__main__':
