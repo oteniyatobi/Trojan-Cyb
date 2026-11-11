@@ -2,12 +2,18 @@ import os
 import json
 import logging
 import requests
+import uuid
 from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models import Setting
 load_dotenv()
+
+DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
+    "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
+))
+
 REQUIRED_KEYS = [
     "attack_type",
     "severity",
@@ -83,7 +89,7 @@ def get_groq_key():
         try:
             session = _db_session()
             try:
-                setting = session.query(Setting).filter_by(key="groq_api_key").one_or_none()
+                setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
             finally:
                 session.close()
             if setting is not None:

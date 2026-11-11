@@ -277,6 +277,7 @@ def analyze():
                     continue
 
                 review = Review(
+                    org_id=alert.org_id,
                     alert_id=alert.id,
                     attack_type=review_data.get("attack_type"),
                     severity=review_data.get("severity"),
@@ -379,10 +380,11 @@ def set_groq_key():
     session = Session()
 
     try:
-        setting = session.query(Setting).filter_by(key="groq_api_key").one_or_none()
+        setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
 
         if setting is None:
-            setting = Setting(key="groq_api_key", value=encrypted, is_secret=True)
+            setting = Setting(org_id=DEFAULT_ORG_ID, key="groq_api_key",
+                              value=encrypted, is_secret=True)
             session.add(setting)
         else:
             setting.value = encrypted
@@ -401,7 +403,7 @@ def get_groq_key_status():
 
     session = Session()
     try:
-        setting = session.query(Setting).filter_by(key="groq_api_key").one_or_none()
+        setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
         if setting is None:
             env_key = os.environ.get("GROQ_API_KEY", "")
             return jsonify({
@@ -435,7 +437,7 @@ def delete_groq_key():
     session = Session()
 
     try:
-        deleted = session.query(Setting).filter_by(key="groq_api_key").delete()
+        deleted = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").delete()
         session.commit()
         return jsonify({"deleted": deleted > 0, "fallback": "env"}), 200
     finally:

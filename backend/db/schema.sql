@@ -84,6 +84,81 @@ CREATE TABLE IF NOT EXISTS audit_log (
     at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO organizations (id, name) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'default'),
+    ('00000000-0000-0000-0000-000000000002', 'demo-org-b')
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'viewer',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS computers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    wazuh_agent_id TEXT,
+    hostname TEXT,
+    ip TEXT,
+    last_seen TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    title TEXT,
+    status TEXT DEFAULT 'open',
+    severity TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS incident_alerts (
+    incident_id UUID REFERENCES incidents(id) ON DELETE CASCADE,
+    alert_id INTEGER REFERENCES alerts(id) ON DELETE CASCADE,
+    PRIMARY KEY (incident_id, alert_id)
+);
+
+-- Give reviews, settings and audit_log an owner org like the other tables.
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id);
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id);
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id);
+
+-- Backfill rows that existed before org_id was added to the default org.
+UPDATE reviews SET org_id = '00000000-0000-0000-0000-000000000001' WHERE org_id IS NULL;
+UPDATE settings SET org_id = '00000000-0000-0000-0000-000000000001' WHERE org_id IS NULL;
+UPDATE audit_log SET org_id = '00000000-0000-0000-0000-000000000001' WHERE org_id IS NULL;
+
+ALTER TABLE reviews ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE settings ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE audit_log ALTER COLUMN org_id SET NOT NULL;
+
+-- settings was keyed on key alone, so two orgs could not hold the same
+-- setting. Re-key it on (org_id, key). Runs only while the old one-column
+-- key is still in place, so re-running this file does nothing. Placed after
+-- the backfill because a primary key cannot contain NULLs.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'settings_pkey'
+          AND conrelid = 'settings'::regclass
+          AND array_length(conkey, 1) = 1
+    ) THEN
+        ALTER TABLE settings DROP CONSTRAINT settings_pkey;
+        ALTER TABLE settings ADD PRIMARY KEY (org_id, key);
+    END IF;
+END$$;
+
 CREATE INDEX IF NOT EXISTS idx_alerts_org ON alerts(org_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_received ON alerts(received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_signature ON alerts(signature_id);
