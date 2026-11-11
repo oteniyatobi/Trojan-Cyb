@@ -1,7 +1,12 @@
-import os 
+import os
 import json
+import logging
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from models import Setting
 load_dotenv()
 REQUIRED_KEYS = [
     "attack_type",
@@ -51,12 +56,44 @@ Use plain language that a non technical person can understand.
 You only advise. Never say you blocked, fixed or changed anything.
 If the alert fits none of the attack types, use Other or unknown.
 Do not invent details that are not in the alert."""
-key = os.getenv('GROQ_API_KEY')
 url = "https://api.groq.com/openai/v1/chat/completions"
-headers = {
-    "Authorization": f"Bearer {key}",
-    "Content-Type": "application/json"
-}
+logger = logging.getLogger(__name__)
+
+# One database engine for the whole process, created on first use, so
+# looking up the key does not open a new connection pool on every call.
+_Session = None
+
+
+def _db_session():
+    global _Session
+    if _Session is None:
+        engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True,
+                               connect_args={"connect_timeout": 5})
+        _Session = sessionmaker(bind=engine)
+    return _Session()
+
+
+def get_groq_key():
+    """Return the Groq key: settings first (encrypted), env fallback.
+
+    The key itself is never logged; warnings name only the error type.
+    """
+    secret = os.environ.get("TROJAN_SECRET_KEY", "").encode()
+    if secret and os.environ.get("DATABASE_URL"):
+        try:
+            session = _db_session()
+            try:
+                setting = session.query(Setting).filter_by(key="groq_api_key").one_or_none()
+            finally:
+                session.close()
+            if setting is not None:
+                return Fernet(secret).decrypt(setting.value.encode()).decode()
+        except InvalidToken:
+            logger.warning("Stored Groq key cannot be decrypted (TROJAN_SECRET_KEY changed?); using GROQ_API_KEY")
+        except Exception as e:
+            logger.warning("Could not read Groq key from settings (%s); using GROQ_API_KEY", type(e).__name__)
+    return os.environ.get("GROQ_API_KEY", "")
+
 
 def get_review(alert):
     body = {
@@ -67,6 +104,15 @@ def get_review(alert):
         ],
         "response_format": {"type": "json_object"}
     }
+    # Read the key once per review (not once at import), so a key saved
+    # through /v1/settings/groq-key takes effect without a restart.
+    key = get_groq_key()
+    if not key:
+        raise Exception("No Groq API key configured")
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json"
+    }
     for attempt in range(3):
         try:
             response = requests.post(url, headers=headers, json=body, timeout=15)
@@ -76,14 +122,14 @@ def get_review(alert):
                 return review
         except Exception as e:
             print(f"Attempt {attempt + 1} failed with error: {e}")
-    raise Exception(f"Failed to get review after 3 attempts")
-    
-    
+    raise Exception("Failed to get review after 3 attempts")
+
+
 def check_groq_api_key():
-    if not key:
-       print("Your GROQ_API_KEY is not set in the environment variables. Please set it in your .env file.") 
+    if not get_groq_key():
+        print("Your Groq key is not set (neither in settings nor in GROQ_API_KEY).")
     else:
-        print("Your GROQ_API_KEY is set correctly.")
+        print("Your Groq key is set.")
 
 def check_review(review):
     problems = []

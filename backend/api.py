@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, joinedload
-from groq_review import get_review, check_review
+from groq_review import get_review, check_review, get_groq_key
 from flask import Flask,  request, jsonify
 from dotenv import load_dotenv
 from models import Alert, Review, Setting
@@ -167,7 +167,7 @@ def alert_to_dict(alert: Alert) -> dict:
 
 @app.route('/v1/health', methods=['GET'])
 def health():
-    key = os.getenv('GROQ_API_KEY')
+    key = get_groq_key()  # settings first, then GROQ_API_KEY
     db_ok = False
     try:
         with engine.connect() as conn:
