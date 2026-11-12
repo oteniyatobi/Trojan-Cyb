@@ -14,6 +14,14 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True)
+    name = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Alert(Base):
     __tablename__ = "alerts"
 
@@ -50,6 +58,7 @@ class Review(Base):
     __tablename__ = "reviews"
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
     alert_id = Column(Integer, ForeignKey("alerts.id", ondelete="CASCADE"), index=True)
     attack_type = Column(String)
     severity = Column(String)
@@ -105,6 +114,7 @@ class Finding(Base):
 class Setting(Base):
     __tablename__ = "settings"
 
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), primary_key=True)
     key = Column(String, primary_key=True)
     value = Column(Text, nullable=False)
     is_secret = Column(Boolean, default=False)
@@ -114,7 +124,17 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id = Column(Integer, primary_key=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
     who = Column(String)
     action = Column(String)
     object = Column(String)
     at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    key_hash = Column(Text, nullable=False, unique=True)
+    label = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
