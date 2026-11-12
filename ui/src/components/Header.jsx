@@ -88,7 +88,6 @@ function Header({
               Settings
             </button>
             <div className="profile-theme">
-              <span>Dark mode</span>
               <ThemeToggle theme={theme} onToggle={onToggleTheme} />
             </div>
           </div>
