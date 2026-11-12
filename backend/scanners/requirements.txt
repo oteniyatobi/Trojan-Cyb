@@ -1,0 +1,3 @@
+# Scanner-only dependencies. Installed in the scan-worker image,
+# not in the API image.
+wapiti3==3.3.2

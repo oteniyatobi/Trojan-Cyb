@@ -31,3 +31,30 @@ wazuh-docker/
 *.pem
 eve.json
 fast.log
+
+# Session artifacts (live credentials — never commit)
+backend/scanners/dvwa_cookies.json
+dvwa_cookies.json
+*.cookies.json
+
+# Scanner output and state
+*.wapiti
+.wapiti/
+/tmp/wapiti_*.json
+/tmp/wapiti_*.log
+
+# Node cache folders (already committed — need to untrack)
+.npm-cache/
+ui/.npm-cache/
+
+# Test caches
+.pytest_cache/
+.mypy_cache/
+
+# Coverage and build artifacts
+.coverage
+htmlcov/
+*.egg-info/
+*.egg
+*.whl
+

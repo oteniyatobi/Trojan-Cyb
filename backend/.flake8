@@ -1,0 +1,14 @@
+[flake8]
+# Existing files carry known style issues (reported to their owners).
+# Each file is exempted ONLY for the codes it has today, so new files and
+# any other kind of error in these files are still caught.
+per-file-ignores =
+    api.py: C901,E302,E305,W291,W293,W391
+    groq_review.py: E111,E302,E305,E501,F541,W291,W292,W293
+    groq_test.py: E302,E303,E501,F541,W291,W293
+    messenger.py: E265,W291,W292
+    scanners/nmap_scanner.py: E265,W292,W293
+    scanners/nuclei_scanner.py: E303,W292
+    scanners/osv_scanner.py: E265,W292
+    scanners/scan_runner.py: W292
+    scanners/wapiti_scanner.py: C901,E128,E265,E303,W293,W391
