@@ -95,6 +95,18 @@ INSERT INTO organizations (id, name) VALUES
     ('00000000-0000-0000-0000-000000000002', 'demo-org-b')
 ON CONFLICT (id) DO NOTHING;
 
+-- The application connects as app_rls, not app. app is the POSTGRES_USER
+-- and a superuser, and Postgres skips RLS for superusers regardless of
+-- FORCE ROW LEVEL SECURITY. app_rls is a normal role with no BYPASSRLS
+-- and no ownership, so the policies apply.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rls') THEN
+        CREATE ROLE app_rls NOINHERIT LOGIN PASSWORD 'app_rls_password';
+    END IF;
+END$$;
+
+
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -167,18 +179,32 @@ CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
 CREATE INDEX IF NOT EXISTS idx_findings_org ON findings(org_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_alert ON reviews(alert_id);
 
--- The application connects as app_rls, not app. app is the POSTGRES_USER
--- and a superuser, and Postgres skips RLS for superusers regardless of
--- FORCE ROW LEVEL SECURITY. app_rls is a normal role with no BYPASSRLS
--- and no ownership, so the policies apply.
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rls') THEN
-        CREATE ROLE app_rls NOINHERIT LOGIN PASSWORD 'app_rls_password';
-    END IF;
-END$$;
+CREATE TABLE IF NOT EXISTS api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    key_hash TEXT NOT NULL UNIQUE,
+    label TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO api_keys (org_id, key_hash, label) VALUES
+    ('00000000-0000-0000-0000-000000000001',
+     encode(sha256('changeme'::bytea), 'hex'),
+     'default ingest')
+ON CONFLICT (key_hash) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_org ON api_keys(org_id);
+
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE api_keys FORCE  ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation_api_keys ON api_keys;
+CREATE POLICY org_isolation_api_keys ON api_keys
+    USING (org_id = current_setting('app.org_id', true)::uuid);
+
+
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_rls;
+GRANT SELECT, INSERT, UPDATE, DELETE ON api_keys TO app_rls;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_rls;
 GRANT USAGE ON SCHEMA public TO app_rls;
 

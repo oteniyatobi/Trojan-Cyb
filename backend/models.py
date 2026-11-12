@@ -129,3 +129,12 @@ class AuditLog(Base):
     action = Column(String)
     object = Column(String)
     at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    key_hash = Column(Text, nullable=False, unique=True)
+    label = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

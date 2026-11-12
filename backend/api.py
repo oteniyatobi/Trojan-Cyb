@@ -3,14 +3,15 @@ import json
 import uuid
 import logging
 import hmac
+import hashlib
 from datetime import datetime
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, joinedload
 from groq_review import get_review, check_review, get_groq_key
-from flask import Flask,  request, jsonify
+from flask import Flask,  request, jsonify, g
 from dotenv import load_dotenv
-from models import Alert, Review, Setting
+from models import Alert, Review, Setting, ApiKey
 from cryptography.fernet import Fernet, InvalidToken
 load_dotenv()
 
@@ -26,6 +27,18 @@ Session = sessionmaker(bind=engine)
 DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
     "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
 ))
+
+def _lookup_org_for_key(raw_key: str):
+    """Return the org UUID for a bearer token, or None if not found."""
+    if not raw_key:
+        return None
+    h = hashlib.sha256(raw_key.encode()).hexdigest()
+    session = Session()
+    try:
+        row = session.query(ApiKey).filter_by(key_hash=h).one_or_none()
+        return row.org_id if row else None
+    finally:
+        session.close()
 
 app = Flask(__name__)
 
@@ -51,23 +64,26 @@ ADMIN_KEY = os.environ.get("TROJAN_ADMIN_KEY", "")
 
 @app.before_request
 def check_api_key():
-    """Require TROJAN_API_KEY on the ingest endpoint only.
+    """Resolve the caller's org from the bearer token, enforce ingest auth.
 
-    /v1/analyze is the machine-to-machine ingest route that Wazuh posts
-    to. Everything else:
-    - /v1/health: open for monitoring
-    - /v1/settings/*: protected by _require_admin(), a separate key
-    - /v1/alerts, /v1/alerts/<id>: open on the internal network, reached
-      only through the nginx proxy on :3000 which is not exposed externally
+    Every request: look up the bearer token in api_keys and set g.org_id.
+    POST /v1/analyze: additionally require TROJAN_API_KEY or a valid
+    api_keys row. Read endpoints accept requests without a key and
+    default to the prototype org.
     """
-    if request.method != "POST" or request.path != "/v1/analyze":
-        return
-    expected = os.environ.get("TROJAN_API_KEY")
-    if not expected:
-        return
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
-    if not hmac.compare_digest(token.encode(), expected.encode()):
+
+    org_id = _lookup_org_for_key(token)
+    g.org_id = org_id or DEFAULT_ORG_ID
+
+    if request.method != "POST" or request.path != "/v1/analyze":
+        return
+
+    expected = os.environ.get("TROJAN_API_KEY", "")
+    if not expected:
+        return
+    if org_id is None and not hmac.compare_digest(token.encode(), expected.encode()):
         return jsonify({"error": "unauthorized"}), 401
 
 
@@ -321,6 +337,7 @@ def analyze():
 
 @app.route('/v1/alerts', methods=['GET'])
 def list_alerts():
+    org_id = g.org_id
     try:
         limit = min(max(int(request.args.get('limit', 100)), 1), 500)
         offset = max(int(request.args.get('offset', 0)), 0)
@@ -330,8 +347,10 @@ def list_alerts():
 
     session = Session()
     try:
-        query = session.query(Alert).options(joinedload(Alert.review))
-        if severity:  # filter by severity if provided
+        query = (session.query(Alert)
+                 .filter(Alert.org_id == org_id)
+                 .options(joinedload(Alert.review)))
+        if severity:
             query = query.join(Review, isouter=True).filter(Review.severity == severity)
 
         total = query.count()
@@ -350,7 +369,10 @@ def list_alerts():
 def get_alert(alert_id):
     session = Session()
     try:
-        alert = session.query(Alert).filter_by(id=alert_id).one_or_none()
+        alert = (session.query(Alert)
+                 .filter(Alert.id == alert_id)
+                 .filter(Alert.org_id == g.org_id)
+                 .one_or_none())
         if alert is None:
             return jsonify({'error': 'Alert not found'}), 404
         return jsonify(alert_to_dict(alert)), 200
