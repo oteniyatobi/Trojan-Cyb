@@ -10,7 +10,7 @@ The frontend for TROJAN, a university project helping SMEs in developing countri
 - npm for dependencies and scripts.
 - Oxlint for lint checks, as supplied by the official Vite React JavaScript template.
 
-The project was created with `create-vite@9.3.3 --template react`. Its standard Vite configuration is retained. React type definitions supplied by the template support editor hints; the application uses JavaScript, not TypeScript.
+The project was created with `create-vite@9.3.3 --template react`. Vite reads frontend environment settings from the repository-root `.env`. React type definitions supplied by the template support editor hints; the application uses JavaScript, not TypeScript.
 
 ## Requirements
 
@@ -26,6 +26,8 @@ npm --version
 From the repository root:
 
 ```bash
+# From the repository root, create .env from .env.example only if it does not already exist.
+# Otherwise, add the missing VITE_SUPABASE_* values without overwriting existing settings.
 cd ui
 npm install
 npm run dev
