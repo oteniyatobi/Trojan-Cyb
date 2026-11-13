@@ -1,32 +1,46 @@
-import trojanLogo from '../assets/trojan-logo.png'
+import Icon from './Icon.jsx'
 
-const navigationItems = ['Overview', 'Alerts', 'Findings', 'Scans', 'Health', 'Settings']
+const navigationItems = ['Overview', 'Alerts', 'Findings', 'Scans', 'Health']
 
-function Sidebar() {
+function Sidebar({ activePage, onNavigate }) {
   return (
-    <aside className="sidebar">
-      <div className="logo-area">
-        <img className="logo" src={trojanLogo} alt="TROJAN" width="2172" height="724" />
-      </div>
-
+    <aside className="sidebar" id="sidebar">
       <nav aria-label="Workspace">
-        <p className="navigation-label">Workspace</p>
+        <p className="navigation-label"></p>
         <ul className="navigation-list">
           {navigationItems.map((item) => (
             <li key={item}>
-              <span
-                className={`navigation-item${item === 'Overview' ? ' active' : ''}`}
-                aria-current={item === 'Overview' ? 'page' : undefined}
+              <button
+                type="button"
+                className={`navigation-item${item === activePage ? ' active' : ''}`}
+                aria-current={item === activePage ? 'page' : undefined}
+                onClick={() => onNavigate(item)}
+                aria-label={item}
+                title={item}
               >
-                <span aria-hidden="true">◈</span>
-                {item}
-              </span>
+                <Icon name={item.toLowerCase()} />
+                <span className="navigation-text">{item}</span>
+              </button>
             </li>
           ))}
         </ul>
       </nav>
-
-      <p className="sidebar-note">Your security workspace</p>
+      <footer className="sidebar-footer">
+        <button
+          type="button"
+          className={`navigation-item${activePage === 'Settings' ? ' active' : ''}`}
+          aria-current={activePage === 'Settings' ? 'page' : undefined}
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => onNavigate('Settings')}
+        >
+          <Icon name="settings" />
+          <span className="navigation-text">Settings</span>
+        </button>
+      </footer>
+      <p className="sidebar-note hidden">
+        <span className="status-dot" /> Demo workspace
+      </p>
     </aside>
   )
 }

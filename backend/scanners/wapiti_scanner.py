@@ -2,6 +2,7 @@ import subprocess
 import json
 import tempfile
 import os
+from urllib.parse import urlparse
 
 
 CRITICAL_CATEGORIES = {
@@ -42,7 +43,22 @@ MEDIUM_CATEGORIES = {
     "Internal Server Error",
 }
 
-def run_wapiti_scan(target_url: str) -> list:
+COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dvwa_cookies.json")
+
+# Wapiti's default attack modules. "-m all" also enables buster, nikto,
+# brute_login_form and timesql, which brute-force thousands of paths and
+# never finished within the timeout, so no report was ever produced.
+#Ran during test with DVWA(Damn Vulnerable Web App)
+MODULES = "xss,exec,redirect,ssl,file,upload,sql,ssrf,permanentxss"
+
+# Pages that must never be requested during an authenticated scan:
+# logout.php destroys the session, setup.php resets the database,
+# security.php changes the security level, and csrf/ changes the
+# admin password (Wapiti fills it with its default value "Letm3in_").
+DVWA_EXCLUSIONS = ("/logout.php", "/setup.php", "/security.php", "/vulnerabilities/csrf/*")
+
+
+def run_wapiti_scan(target_url: str, exclusions=DVWA_EXCLUSIONS) -> list:
     findings = []
 
     #wapiti writes to temporary file
@@ -50,20 +66,24 @@ def run_wapiti_scan(target_url: str) -> list:
     temp_report_path = temp_report.name
     temp_report.close()
 
-    COOKIE_FILE = "/tmp/dvwa_cookies.json"
 
     command = [
         "wapiti",
         "-u", target_url,
         "-f", "json",
         "-o", temp_report_path,
-        "-m", "all",
+        "-m", MODULES,
         "--flush-session",
         "-c", COOKIE_FILE
     ]
+    if exclusions:
+        parsed = urlparse(target_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        for path in exclusions:
+            command.extend(["-x", origin + path])
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
         if result.returncode != 0:
             print(f"Wapiti exited {result.returncode}: {result.stderr[-500:]}")
             return findings
@@ -72,8 +92,17 @@ def run_wapiti_scan(target_url: str) -> list:
             with open(temp_report_path, 'r') as report_file:
                 data = json.load(report_file)
 
-                vulnerabirities = data.get("vulnerabilities", {})
-                for category, issues in vulnerabirities.items():
+                info = data.get("infos", {})
+                pages = info.get("crawled_pages_nbr", 0)
+                #auth = info.get("auth")
+                if pages <= 1:
+                    print(f"WARNING: Wapiti crawled only {pages} page(s). The session is "
+                        f"likely expired or the target redirected to a login page. "
+                        f"Regenerate dvwa_cookies.json and re-run.")
+                    return findings
+
+                vulnerabilities = data.get("vulnerabilities", {})
+                for category, issues in vulnerabilities.items():
                     #wapiti categories
                     if category in CRITICAL_CATEGORIES:
                         severity = "critical"

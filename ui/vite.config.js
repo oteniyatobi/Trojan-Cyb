@@ -4,5 +4,12 @@ import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
   plugins: [react()],
-  envDir: fileURLToPath(new URL('../', import.meta.url)),
+  server: {
+    proxy: {
+      '/v1': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
 })

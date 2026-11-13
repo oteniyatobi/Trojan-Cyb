@@ -86,7 +86,7 @@ jobs:
         ports:
           - 6379:6379
     env:
-      DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+      DATABASE_URL: postgresql+psycopg://testuser:testpass@localhost:5432/testdb
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
@@ -117,7 +117,7 @@ jobs:
 
       - name: Run tests
         if: steps.detect.outputs.exists == 'true'
-        run: pytest --cov=. --cov-report=term-missing
+        run: pytest --cov=. --cov-report=term-missing || [ $? -eq 5 ]  # exit 5 = no tests collected yet
 
   frontend-lint:
     name: Frontend Linting
