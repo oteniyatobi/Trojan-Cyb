@@ -10,7 +10,7 @@ The frontend for TROJAN, a university project helping SMEs in developing countri
 - npm for dependencies and scripts.
 - Oxlint for lint checks, as supplied by the official Vite React JavaScript template.
 
-The project was created with `create-vite@9.3.3 --template react`. Its standard Vite configuration is retained. React type definitions supplied by the template support editor hints; the application uses JavaScript, not TypeScript.
+The project was created with `create-vite@9.3.3 --template react`. Vite reads frontend environment settings from the repository-root `.env`. React type definitions supplied by the template support editor hints; the application uses JavaScript, not TypeScript.
 
 ## Requirements
 
@@ -26,6 +26,8 @@ npm --version
 From the repository root:
 
 ```bash
+# From the repository root, create .env from .env.example only if it does not already exist.
+# Otherwise, add the missing VITE_SUPABASE_* values without overwriting existing settings.
 cd ui
 npm install
 npm run dev
@@ -106,12 +108,16 @@ Screenshots are kept outside `src/` and are not imported into React components. 
 ## Currently implemented
 
 - Responsive sidebar with TROJAN branding and Overview active styling.
-- Header with static search text, local monitoring status, and profile placeholder.
-- Overview heading and welcome message.
-- Four KPI cards: Active Alerts, Critical Threats, Monitored Hosts, and Resolved Incidents.
+- Supabase email/password sign-in and self-service sign-up.
+- First user can enter an organization name; Supabase creates its organization and makes that user the organization admin.
+- Organization list resolved from the signed-in user's memberships, or all organizations for a trusted platform administrator.
+- Recent alerts read from Supabase; access is enforced by database RLS, not only by frontend filters.
+- A configuration message if the Supabase project URL or publishable key is missing.
 - Shared CSS variables and desktop/mobile layouts.
 
-KPI values display “—” and monitoring displays “Not connected”. Navigation labels do not open additional pages. No charts, mock-data generators, routing, authentication, API calls, or real security data are included.
+Navigation labels do not open additional pages. There are no charts or scan controls yet. Wazuh alert ingestion and scanner-finding ingestion are handled by the Flask backend; the UI reads organization-scoped alert and finding rows directly through Supabase Auth and RLS. The initial Supabase schema and RLS policies are in the repository-level `supabase/migrations/` folder.
+
+The optional Docker image receives only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` from the root `.env` as build arguments. Never prefix the backend service-role key with `VITE_` or expose it to the UI.
 
 ## Planned next steps
 

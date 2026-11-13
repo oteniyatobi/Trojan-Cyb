@@ -1,16 +1,14 @@
-function Header() {
+function Header({ user, onSignOut }) {
   return (
     <header className="header">
-      <p className="search-placeholder">Search alerts, hosts, vulnerabilities…</p>
+      <p className="search-placeholder">Supabase · Monitoring not connected</p>
 
       <div className="header-details">
-        <p className="monitoring-status">
-          <span className="status-dot" aria-hidden="true" />
-          Local monitoring · Not connected
-        </p>
-        <div className="profile-placeholder" aria-label="User profile placeholder">
-          U
+        <p className="user-email">{user.email}</p>
+        <div className="profile-placeholder" aria-hidden="true">
+          {user.email?.charAt(0).toUpperCase() ?? 'U'}
         </div>
+        <button className="sign-out-button" onClick={onSignOut} type="button">Sign out</button>
       </div>
     </header>
   )
