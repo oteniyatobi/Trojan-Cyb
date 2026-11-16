@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 import requests
 import uuid
 from cryptography.fernet import Fernet, InvalidToken
@@ -150,10 +151,21 @@ def get_review(alert):
                 return review
             # 429 / 5xx: log and retry; other 4xx: log and stop
             if response.status_code == 429:
-                logger.warning("Groq 429 rate-limited (attempt %d/%d)", attempt + 1, max_retries)
+                # Wait as long as Groq asks, capped at 60s: some APIs send
+                # Retry-After: 3600, and sleeping an hour is worse than failing.
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    wait = min(int(retry_after), 60) if retry_after else 5
+                except (TypeError, ValueError):
+                    wait = 5
+                logger.warning("Groq 429; sleeping %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+                time.sleep(wait)
                 continue
             if 500 <= response.status_code < 600:
-                logger.warning("Groq %d server error (attempt %d/%d)", response.status_code, attempt + 1, max_retries)
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning("Groq %d; sleeping %ds (attempt %d/%d)",
+                               response.status_code, wait, attempt + 1, max_retries)
+                time.sleep(wait)
                 continue
             logger.warning("Groq %d client error, not retrying", response.status_code)
             break

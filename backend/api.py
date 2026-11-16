@@ -289,6 +289,26 @@ def analyze():
                 # # if the Groq call fails. The review is a second transaction below.
                 session.commit()
 
+                # Per-org hourly limit on Groq reviews. If the org has used
+                # its quota, skip the call and mark the alert so a
+                # reconciler can retry it later.
+                hourly_limit = int(os.environ.get("GROQ_REVIEWS_PER_HOUR", "100"))
+                recent = session.execute(text(
+                    "SELECT COUNT(*) FROM reviews "
+                    "WHERE org_id = :org "
+                    "AND created_at > now() - interval '1 hour'"
+                ), {"org": str(alert.org_id)}).scalar()
+                if recent is not None and recent >= hourly_limit:
+                    alert.review_status = "rate_limited"
+                    session.commit()
+                    results.append({
+                        "id": alert.id,
+                        "wazuh_id": alert.wazuh_id,
+                        "review_status": "rate_limited",
+                        "limit": hourly_limit,
+                    })
+                    continue
+
                 try:
                     review_data = get_review(json.dumps(payload))
                     problems = check_review(review_data)
