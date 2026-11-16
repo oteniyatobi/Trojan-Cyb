@@ -6,6 +6,7 @@ unified findings. Nuclei emits one JSON object per line, one per finding.
 
 import json
 import subprocess
+from datetime import datetime
 
 
 def run_nuclei_scan(target_url: str) -> list:
@@ -48,6 +49,7 @@ def run_nuclei_scan(target_url: str) -> list:
 
             cve_ids = info.get("classification", {}).get("cve-id") or []
             cve_id = cve_ids[0] if cve_ids else None
+            evidence = data.get("matched-at", target_url)
 
             findings.append({
                 "tool": "nuclei",
@@ -56,7 +58,10 @@ def run_nuclei_scan(target_url: str) -> list:
                 "severity": severity,
                 "title": info.get("name", "Unknown Nuclei finding"),
                 "description": info.get("description", "No description provided."),
+                "evidence": evidence,
+                "raw_output_ref": None,
                 "cve_id": cve_id,
+                "found_at": datetime.utcnow().isoformat() + "Z",
             })
 
     except subprocess.TimeoutExpired:

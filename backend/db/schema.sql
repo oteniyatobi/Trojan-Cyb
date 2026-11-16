@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS findings (
     title TEXT,
     description TEXT,
     cve_id TEXT,
+    evidence TEXT,
+    raw_output_ref TEXT,
+    found_at TIMESTAMPTZ DEFAULT NOW(),
     first_seen TIMESTAMPTZ DEFAULT NOW(),
     last_seen TIMESTAMPTZ DEFAULT NOW(),
     status TEXT DEFAULT 'new'
