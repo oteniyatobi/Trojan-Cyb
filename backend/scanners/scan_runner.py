@@ -1,25 +1,36 @@
-"""
-Runs all Trojan scanners and returns a combined list of findings
-"""
+"""Run every registered scanner against its target."""
+
+import logging
+
+from scanners import nmap_scanner, wapiti_scanner, nuclei_scanner, osv_scanner
+
+logger = logging.getLogger(__name__)
+
+# Each entry is (function, target_kind). target_kind tells the runner
+# which argument to pass: "host" for nmap, "url" for wapiti/nuclei,
+# "dir" for osv. Adding a tool is one import above plus one line here.
+SCANNERS = {
+    "nmap": (nmap_scanner.run_nmap_scan, "host"),
+    "wapiti": (wapiti_scanner.run_wapiti_scan, "url"),
+    "nuclei": (nuclei_scanner.run_nuclei_scan, "url"),
+    "osv": (osv_scanner.run_osv_scan, "dir"),
+}
 
 
-from scanners.nmap_scanner import run_nmap_scan
-from scanners.wapiti_scanner import run_wapiti_scan
-from scanners.nuclei_scanner import run_nuclei_scan
-from scanners.osv_scanner import run_osv_scan
+def run_all_scans(host, url, code_dir):
+    """Run every registered scanner and return {tool: [findings]}.
 
-
-def run_all_scans(host: str, url: str, code_dir: str) -> dict:
+    A scanner that raises is a failed scan: the key is present in the
+    result with an empty list, and the exception is logged. A scanner
+    that returns [] is a clean scan.
     """
-    Run all scanners and return a dictionary of findings
-    :param host: target host for nmap scan
-    :param url: target URL for wapiti and nuclei scans
-    :param code_dir: directory containing code for osv scan
-    :return: dictionary of findings from each scanner
-    """
-    return {
-        "nmap": run_nmap_scan(host),
-        "wapiti": run_wapiti_scan(url),
-        "nuclei": run_nuclei_scan(url),
-        "osv": run_osv_scan(code_dir),
-    }
+    targets = {"host": host, "url": url, "dir": code_dir}
+    results = {}
+    for name, (fn, kind) in SCANNERS.items():
+        target = targets[kind]
+        try:
+            results[name] = fn(target)
+        except Exception:
+            logger.exception("scan %s failed on %s", name, target)
+            results[name] = []
+    return results
