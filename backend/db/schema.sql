@@ -1,3 +1,15 @@
+-- The current business, NULL when unset. RLS policies use this instead
+-- of current_setting directly, so an empty setting (a session with no
+-- tenant) resolves to NULL and filters to zero rows rather than raising
+-- ''::uuid. The per-transaction refactor sets app.org_id to '' for the
+-- cross-tenant lookups (trojan_org_for_key, trojan_user_for_login,
+-- trojan_due_reviews), which run as trojan_lookup with BYPASSRLS, so
+-- they bypass the policies anyway. This function makes the empty-string
+-- setting safe for any query that isn't a lookup.
+CREATE OR REPLACE FUNCTION trojan_current_org() RETURNS uuid
+    LANGUAGE sql STABLE
+    AS $$ SELECT NULLIF(current_setting('app.org_id', true), '')::uuid $$;
+
 CREATE TABLE IF NOT EXISTS alerts (
     id SERIAL PRIMARY KEY,
     org_id UUID NOT NULL,
@@ -202,7 +214,7 @@ ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_keys FORCE  ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation_api_keys ON api_keys;
 CREATE POLICY org_isolation_api_keys ON api_keys
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 
 
@@ -248,28 +260,28 @@ DROP POLICY IF EXISTS org_isolation_computers ON computers;
 DROP POLICY IF EXISTS org_isolation_incidents ON incidents;
 
 CREATE POLICY org_isolation_alerts ON alerts
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_reviews ON reviews
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_scans ON scans
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_findings ON findings
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_settings ON settings
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_audit_log ON audit_log
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_users ON users
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_computers ON computers
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
 
 CREATE POLICY org_isolation_incidents ON incidents
-    USING (org_id = current_setting('app.org_id', true)::uuid);
+    USING (org_id = trojan_current_org());
