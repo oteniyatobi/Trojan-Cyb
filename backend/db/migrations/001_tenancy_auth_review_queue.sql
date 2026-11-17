@@ -4,6 +4,17 @@
 --   psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/db/migrations/001_tenancy_auth_review_queue.sql
 -- Safe to run again: every statement checks before it changes anything.
 --
+-- The current business, NULL when unset. schema.sql defines this for a
+-- fresh install; this CREATE OR REPLACE covers an existing volume where
+-- schema.sql doesn't re-run. RLS policies use trojan_current_org() so an
+-- empty app.org_id (a "no tenant" session) filters to zero rows rather
+-- than raising ''::uuid.
+CREATE OR REPLACE FUNCTION trojan_current_org() RETURNS uuid
+    LANGUAGE sql STABLE
+    AS $$ SELECT NULLIF(current_setting('app.org_id', true), '')::uuid $$;
+
+GRANT EXECUTE ON FUNCTION trojan_current_org() TO app_rls;
+
 -- 1. Review-queue columns on alerts.
 -- 2. wazuh_id unique per business, not globally.
 -- 3. Findings columns the scanners now return.
@@ -50,14 +61,14 @@ ALTER TABLE incident_alerts FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS org_isolation_organizations ON organizations;
 CREATE POLICY org_isolation_organizations ON organizations
-    USING (id = current_setting('app.org_id', true)::uuid);
+    USING (id = trojan_current_org());
 
 DROP POLICY IF EXISTS org_isolation_incident_alerts ON incident_alerts;
 CREATE POLICY org_isolation_incident_alerts ON incident_alerts
     USING (EXISTS (
         SELECT 1 FROM incidents i
         WHERE i.id = incident_id
-          AND i.org_id = current_setting('app.org_id', true)::uuid
+          AND i.org_id = trojan_current_org()
     ));
 
 -- 5. trojan_lookup role + SECURITY DEFINER functions -------------------------
