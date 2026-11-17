@@ -66,6 +66,15 @@ if SECRET_KEY:
 # TROJAN_ADMIN_KEY authorizes /v1/settings/groq-key. Separate from the
 # ingest key so Wazuh's copy in ossec.conf cannot reach the admin API.
 ADMIN_KEY = os.environ.get("TROJAN_ADMIN_KEY", "")
+# Models this deployment is allowed to use. Kept narrow so a compromised
+# admin key can only switch between known-good models, not to an arbitrary
+# string.
+# Only models this Groq account serves. Verified against the API:
+# openai/gpt-oss-120b returns 200; llama-3.1-8b-instant and
+# llama-3.3-70b-versatile return 404 model_not_found. Keep this set
+# in sync with the account's catalog; a stale name here would let an
+# admin store a model the pipeline cannot call.
+ALLOWED_MODELS = {"openai/gpt-oss-120b"}
 
 
 @app.before_request
@@ -280,6 +289,26 @@ def analyze():
                 # # if the Groq call fails. The review is a second transaction below.
                 session.commit()
 
+                # Per-org hourly limit on Groq reviews. If the org has used
+                # its quota, skip the call and mark the alert so a
+                # reconciler can retry it later.
+                hourly_limit = int(os.environ.get("GROQ_REVIEWS_PER_HOUR", "100"))
+                recent = session.execute(text(
+                    "SELECT COUNT(*) FROM reviews "
+                    "WHERE org_id = :org "
+                    "AND created_at > now() - interval '1 hour'"
+                ), {"org": str(alert.org_id)}).scalar()
+                if recent is not None and recent >= hourly_limit:
+                    alert.review_status = "rate_limited"
+                    session.commit()
+                    results.append({
+                        "id": alert.id,
+                        "wazuh_id": alert.wazuh_id,
+                        "review_status": "rate_limited",
+                        "limit": hourly_limit,
+                    })
+                    continue
+
                 try:
                     review_data = get_review(json.dumps(payload))
                     problems = check_review(review_data)
@@ -468,6 +497,61 @@ def delete_groq_key():
         deleted = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").delete()
         session.commit()
         return jsonify({"deleted": deleted > 0, "fallback": "env"}), 200
+    finally:
+        session.close()
+
+
+@app.route('/v1/settings/groq-model', methods=['PUT'])
+def set_groq_model():
+    denied = _require_admin()
+    if denied:
+        return denied
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
+    model = data.get("model", "")
+    if not isinstance(model, str) or model not in ALLOWED_MODELS:
+        return jsonify({
+            "error": "model must be one of: " + ", ".join(sorted(ALLOWED_MODELS))
+        }), 422
+
+    session = Session()
+    try:
+        setting = session.query(Setting).filter_by(
+            org_id=DEFAULT_ORG_ID, key="groq_model"
+        ).one_or_none()
+        if setting is None:
+            setting = Setting(
+                org_id=DEFAULT_ORG_ID,
+                key="groq_model",
+                value=model,
+                is_secret=False,
+            )
+            session.add(setting)
+        else:
+            setting.value = model
+        session.commit()
+        return jsonify({"model": model}), 200
+    finally:
+        session.close()
+
+
+@app.route('/v1/settings/groq-model', methods=['GET'])
+def get_groq_model_status():
+    denied = _require_admin()
+    if denied:
+        return denied
+
+    session = Session()
+    try:
+        setting = session.query(Setting).filter_by(
+            org_id=DEFAULT_ORG_ID, key="groq_model"
+        ).one_or_none()
+        if setting is None:
+            env_model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+            return jsonify({"model": env_model, "source": "env"}), 200
+        return jsonify({"model": setting.value, "source": "database"}), 200
     finally:
         session.close()
 

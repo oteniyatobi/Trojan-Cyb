@@ -2,6 +2,7 @@ import subprocess
 import json
 import tempfile
 import os
+from datetime import datetime
 from urllib.parse import urlparse
 
 
@@ -114,6 +115,7 @@ def run_wapiti_scan(target_url: str, exclusions=DVWA_EXCLUSIONS) -> list:
                         severity = "low"
                         
                     for issue in issues:
+                        evidence = f"path={issue.get('path', '?')} parameter={issue.get('parameter', '?')}"
                         findings.append({
                             "tool": "wapiti",
                             "target": target_url,
@@ -121,7 +123,10 @@ def run_wapiti_scan(target_url: str, exclusions=DVWA_EXCLUSIONS) -> list:
                             "severity": severity,
                             "title": f"{category}",
                             "description": issue.get("info", "No description provided."),
-                            "cve_id": None
+                            "evidence": evidence,
+                            "raw_output_ref": None,
+                            "cve_id": None,
+                            "found_at": datetime.utcnow().isoformat() + "Z",
                         })
 
     except subprocess.TimeoutExpired:
