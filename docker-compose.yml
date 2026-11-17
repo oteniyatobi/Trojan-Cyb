@@ -11,6 +11,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./backend/db/migrations/001_tenancy_auth_review_queue.sql:/docker-entrypoint-initdb.d/02-migration.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app} -d ${DB_NAME:-app_db}"]
       interval: 5s

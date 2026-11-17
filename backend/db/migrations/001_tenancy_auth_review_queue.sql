@@ -65,6 +65,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'trojan_lookup') THEN
         CREATE ROLE trojan_lookup NOLOGIN;
+        ALTER ROLE trojan_lookup BYPASSRLS;
     END IF;
 END$$;
 

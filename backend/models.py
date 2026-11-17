@@ -6,7 +6,8 @@ rows in Python rather than raw SQL.
 """
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func,
+    Boolean, Column, DateTime, ForeignKey, Integer, String, Text,
+    UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base, relationship
@@ -24,10 +25,11 @@ class Organization(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (UniqueConstraint("org_id", "wazuh_id", name="alerts_org_wazuh_key"),)
 
     id = Column(Integer, primary_key=True)
     org_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    wazuh_id = Column(String, unique=True, nullable=False)
+    wazuh_id = Column(String, nullable=False)
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     event_time = Column(DateTime(timezone=True))
     rule_id = Column(String)
