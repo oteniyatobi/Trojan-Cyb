@@ -19,7 +19,7 @@ function Findings({ findings }) {
         <article className="kpi-card metric-card">
           <h2>Total Findings</h2>
           <p className="kpi-value">{findings.length}</p>
-          <p className="kpi-description">Latest demo scan results</p>
+          <p className="kpi-description">Latest organization findings</p>
           <span className="metric-icon">
             <Icon name="findings" />
           </span>
@@ -39,7 +39,7 @@ function Findings({ findings }) {
           <p className="kpi-value">
             {findings.filter((finding) => finding.status === 'Resolved').length}
           </p>
-          <p className="kpi-description">Reviewed by the demo team</p>
+          <p className="kpi-description">Resolved in this organization</p>
           <span className="metric-icon">
             <Icon name="check" />
           </span>

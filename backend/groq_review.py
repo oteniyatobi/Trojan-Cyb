@@ -1,18 +1,8 @@
 import os
 import json
-import logging
 import requests
-import uuid
-from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from models import Setting
 load_dotenv()
-
-DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
-    "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
-))
 
 REQUIRED_KEYS = [
     "attack_type",
@@ -63,47 +53,15 @@ You only advise. Never say you blocked, fixed or changed anything.
 If the alert fits none of the attack types, use Other or unknown.
 Do not invent details that are not in the alert."""
 url = "https://api.groq.com/openai/v1/chat/completions"
-logger = logging.getLogger(__name__)
-
-# One database engine for the whole process, created on first use, so
-# looking up the key does not open a new connection pool on every call.
-_Session = None
-
-
-def _db_session():
-    global _Session
-    if _Session is None:
-        engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True,
-                               connect_args={"connect_timeout": 5, "options": "-c app.org_id=00000000-0000-0000-0000-000000000001"})
-        _Session = sessionmaker(bind=engine)
-    return _Session()
 
 
 def get_groq_key():
-    """Return the Groq key: settings first (encrypted), env fallback.
-
-    The key itself is never logged; warnings name only the error type.
-    """
-    secret = os.environ.get("TROJAN_SECRET_KEY", "").encode()
-    if secret and os.environ.get("DATABASE_URL"):
-        try:
-            session = _db_session()
-            try:
-                setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
-            finally:
-                session.close()
-            if setting is not None:
-                return Fernet(secret).decrypt(setting.value.encode()).decode()
-        except InvalidToken:
-            logger.warning("Stored Groq key cannot be decrypted (TROJAN_SECRET_KEY changed?); using GROQ_API_KEY")
-        except Exception as e:
-            logger.warning("Could not read Groq key from settings (%s); using GROQ_API_KEY", type(e).__name__)
     return os.environ.get("GROQ_API_KEY", "")
 
 
 def get_review(alert):
     body = {
-        "model": os.getenv('GROQ_MODEL'),
+        "model": os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b'),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": alert}
