@@ -5,7 +5,9 @@ import logging
 import hmac
 import hashlib
 from datetime import datetime
-from sqlalchemy import create_engine, text
+from contextlib import contextmanager
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.orm import Session, sessionmaker, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, joinedload
 from groq_review import get_review, check_review, get_groq_key
@@ -34,17 +36,60 @@ DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
     "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
 ))
 
-def _lookup_org_for_key(raw_key: str):
-    """Return the org UUID for a bearer token, or None if not found."""
-    if not raw_key:
-        return None
-    h = hashlib.sha256(raw_key.encode()).hexdigest()
-    session = Session()
+
+@event.listens_for(Session, "after_begin")
+def _set_org(session, transaction, connection):
+    """Set app.org_id per transaction when the session carries an org.
+
+    A plain Session() (no org_id in info) leaves the connection-level
+    app.org_id from connect_args alone. org_session(org_id) overrides it
+    per transaction. This is the scaffold for the per-request refactor;
+    until the routes use org_session, Session() keeps the default org.
+    """
+    org_id = session.info.get("org_id")
+    if org_id is None:
+        return
+    connection.execute(
+        text("SELECT set_config('app.org_id', :org, true)"),
+        {"org": str(org_id)},
+    )
+
+
+@contextmanager
+def org_session(org_id):
+    """A session scoped to org_id. Commits on success, rolls back on failure."""
+    session = Session(info={"org_id": org_id})
     try:
-        row = session.query(ApiKey).filter_by(key_hash=h).one_or_none()
-        return row.org_id if row else None
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
+
+
+def db_org_for_key_hash(key_hash):
+    """Business that owns an ingest key hash, or None.
+
+    Uses trojan_org_for_key, a SECURITY DEFINER function owned by
+    trojan_lookup (BYPASSRLS), so it crosses org boundaries even though
+    the session has no tenant set.
+    """
+    with org_session(None) as s:
+        return s.execute(
+            text("SELECT trojan_org_for_key(:h)"), {"h": key_hash}
+        ).scalar()
+
+
+def _lookup_org_for_key(raw_key: str):
+    """Return the org UUID for a bearer token, or None if not found.
+
+    Goes through trojan_org_for_key so it works without a tenant set.
+    """
+    if not raw_key:
+        return None
+    return db_org_for_key_hash(hashlib.sha256(raw_key.encode()).hexdigest())
 
 app = Flask(__name__)
 
