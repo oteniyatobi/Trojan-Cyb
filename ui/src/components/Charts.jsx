@@ -80,7 +80,7 @@ export function ActivityChart({ activity, period }) {
         <svg
           viewBox="0 0 380 150"
           role="img"
-          aria-label={`Demo security events: ${activity.map((day) => `${day.day} ${day.events}`).join(', ')}`}
+          aria-label={`Organization security events: ${activity.map((day) => `${day.day} ${day.events}`).join(', ')}`}
         >
           {[30, 65, 100, 135].map((y) => (
             <line key={y} x1="0" y1={y} x2="380" y2={y} stroke="var(--color-border)" />

@@ -3,17 +3,9 @@ import json
 import logging
 import time
 import requests
-import uuid
-from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from models import Setting
-load_dotenv()
 
-DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
-    "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
-))
+load_dotenv()
 
 REQUIRED_KEYS = [
     "attack_type",
@@ -66,112 +58,80 @@ Do not invent details that are not in the alert."""
 url = "https://api.groq.com/openai/v1/chat/completions"
 logger = logging.getLogger(__name__)
 
-# One database engine for the whole process, created on first use, so
-# looking up the key does not open a new connection pool on every call.
-_Session = None
-
-
-def _db_session():
-    global _Session
-    if _Session is None:
-        engine = create_engine(os.environ["DATABASE_URL"], pool_pre_ping=True,
-                               connect_args={"connect_timeout": 5, "options": "-c app.org_id=00000000-0000-0000-0000-000000000001"})
-        _Session = sessionmaker(bind=engine)
-    return _Session()
-
 
 def get_groq_key():
-    """Return the Groq key: settings first (encrypted), env fallback.
-
-    The key itself is never logged; warnings name only the error type.
-    """
-    secret = os.environ.get("TROJAN_SECRET_KEY", "").encode()
-    if secret and os.environ.get("DATABASE_URL"):
-        try:
-            session = _db_session()
-            try:
-                setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
-            finally:
-                session.close()
-            if setting is not None:
-                return Fernet(secret).decrypt(setting.value.encode()).decode()
-        except InvalidToken:
-            logger.warning("Stored Groq key cannot be decrypted (TROJAN_SECRET_KEY changed?); using GROQ_API_KEY")
-        except Exception as e:
-            logger.warning("Could not read Groq key from settings (%s); using GROQ_API_KEY", type(e).__name__)
     return os.environ.get("GROQ_API_KEY", "")
 
 
-def get_groq_model():
-    """Return the Groq model: settings first, GROQ_MODEL env fallback."""
-    db_url = os.environ.get("DATABASE_URL")
-    if db_url:
+def _retry_delay(status_code, headers, attempt):
+    if status_code == 429:
+        retry_after = headers.get("Retry-After")
         try:
-            from models import Setting
-            session = _db_session()
-            try:
-                setting = session.query(Setting).filter_by(
-                    org_id=DEFAULT_ORG_ID, key="groq_model"
-                ).one_or_none()
-                if setting is not None:
-                    return setting.value
-            finally:
-                session.close()
-        except Exception:
-            pass
-    return os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+            return min(int(retry_after), 60) if retry_after else 5
+        except (TypeError, ValueError):
+            return 5
+    if 500 <= status_code < 600:
+        return 2 ** attempt
+    return None
+
+
+def _positive_int_setting(name, default):
+    value = int(os.environ.get(name, default))
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1")
+    return value
 
 
 def get_review(alert):
     key = get_groq_key()
     if not key:
-        raise Exception("No Groq API key configured")
+        raise RuntimeError("No Groq API key configured")
 
     body = {
-        "model": get_groq_model(),
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": alert}
         ],
-        "response_format": {"type": "json_object"}
+        "response_format": {"type": "json_object"},
     }
     headers = {
         "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    timeout = int(os.environ.get("GROQ_TIMEOUT_SECONDS", "15"))
-    max_retries = int(os.environ.get("GROQ_MAX_RETRIES", "3"))
+    timeout = _positive_int_setting("GROQ_TIMEOUT_SECONDS", "15")
+    max_retries = _positive_int_setting("GROQ_MAX_RETRIES", "3")
 
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=body, timeout=timeout)
             if response.status_code == 200:
-                text = response.json()['choices'][0]['message']['content']
-                review = json.loads(text)
-                return review
-            # 429 / 5xx: log and retry; other 4xx: log and stop
-            if response.status_code == 429:
-                # Wait as long as Groq asks, capped at 60s: some APIs send
-                # Retry-After: 3600, and sleeping an hour is worse than failing.
-                retry_after = response.headers.get("Retry-After")
-                try:
-                    wait = min(int(retry_after), 60) if retry_after else 5
-                except (TypeError, ValueError):
-                    wait = 5
-                logger.warning("Groq 429; sleeping %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
+                content = response.json()["choices"][0]["message"]["content"]
+                return json.loads(content)
+
+            wait = _retry_delay(response.status_code, response.headers, attempt)
+            if wait is None:
+                logger.warning("Groq returned non-retryable HTTP %d", response.status_code)
+                break
+            logger.warning(
+                "Groq returned HTTP %d; retrying after %d seconds",
+                response.status_code,
+                wait,
+            )
+            if attempt + 1 < max_retries:
                 time.sleep(wait)
-                continue
-            if 500 <= response.status_code < 600:
-                wait = 2 ** attempt  # 1s, 2s, 4s
-                logger.warning("Groq %d; sleeping %ds (attempt %d/%d)",
-                               response.status_code, wait, attempt + 1, max_retries)
-                time.sleep(wait)
-                continue
-            logger.warning("Groq %d client error, not retrying", response.status_code)
-            break
-        except Exception as e:
-            logger.warning("Groq attempt %d failed: %s", attempt + 1, type(e).__name__)
-    raise Exception(f"Failed to get review after {max_retries} attempts")
+        except requests.RequestException as error:
+            logger.warning(
+                "Groq request failed on attempt %d/%d (%s)",
+                attempt + 1,
+                max_retries,
+                type(error).__name__,
+            )
+            if attempt + 1 < max_retries:
+                time.sleep(2 ** attempt)
+
+    raise RuntimeError(f"Failed to get review after {max_retries} attempts")
+
 
 def check_groq_api_key():
     if not get_groq_key():
@@ -190,7 +150,6 @@ def check_review(review):
     if review['severity'] not in SEVERITIES:
         problems.append(f"Invalid severity: {review['severity']}")  
     return problems
-
 
 if __name__ == "__main__":
     check_groq_api_key()

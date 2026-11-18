@@ -24,7 +24,7 @@ function Health({ services, hosts, snapshotDate }) {
           <h2>Monitored hosts</h2>
           <span className="panel-caption">
             {hosts.filter((host) => host.status === 'Online').length} of{' '}
-            {hosts.length} online · Demo snapshot
+            {hosts.length} online
           </span>
         </div>
         <label className="host-search">
@@ -69,7 +69,7 @@ function Health({ services, hosts, snapshotDate }) {
           </table>
         </div>
         {filtered.length === 0 && (
-          <p className="empty-state">No hosts match your search.</p>
+          <p className="empty-state">No monitored hosts are available yet.</p>
         )}
       </section>
     </>

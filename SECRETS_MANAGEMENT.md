@@ -6,27 +6,35 @@ Real secrets live only in `.env`, which is git-ignored. The repo contains `.env.
 
 | Variable | Shared or personal | Notes |
 |---|---|---|
-| `DB_PASSWORD` | Personal (local dev) | Anything you like locally. Production gets a generated value. |
+| `VITE_SUPABASE_URL` | Shared project configuration | Public project URL, stored in the root `.env`. |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Shared project configuration | Safe for browser use only because RLS is enabled on application tables. Stored in the root `.env`. |
+| `SUPABASE_URL` | Server configuration | Supabase project URL for the backend. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server secret | Backend only; bypasses RLS. Never prefix it with `VITE_` or expose it to browser code. |
+| `TROJAN_ORGANIZATION_ID` | Per-installation configuration | Organization UUID assigned to this Wazuh/API installation. The request cannot choose it. |
+| `TROJAN_INGESTION_API_KEY` | Per-installation secret | Protects machine-to-backend alert and finding ingestion. |
 | `WAZUH_API_USER` / `WAZUH_API_PASSWORD` | Shared | `admin/admin` is for local development only. |
 | `GROQ_API_KEY` | Shared | Owned by the teammate who manages the AI engine. |
 
+Supabase secret/service-role keys are privileged credentials. They bypass RLS and must never be placed in frontend variables, committed files, or a user's browser. `.env.example` contains placeholders only; real values belong in the ignored root `.env`. The publishable key is the only Supabase key used by the frontend.
+
 ## Setup
 
-1. Copy the template:
+1. Create the root `.env` from the template if it does not exist:
    ```bash
    cp .env.example .env
    ```
-2. Replace the placeholders in `.env` with real values.
-3. Confirm Git ignores it:
+   If `.env` already exists, do not overwrite it; add only missing settings from `.env.example`.
+2. Replace placeholders with the appropriate values. Both UI and backend settings live in the root `.env`. Only `VITE_`-prefixed values are exposed to the UI; keep the service-role key unprefixed and server-only.
+3. Confirm Git ignores the root environment file:
    ```bash
    git check-ignore -v .env   # should print a .gitignore line
-   git status                 # .env must NOT appear
+   git status                 # .env should not appear
    ```
 
 ## What goes where
 
-- **`.env.example`** (committed): variable names and fake values only.
-- **`.env`** (never committed): real values, one copy per machine.
+- **`.env.example`** (committed): variable names and placeholders only.
+- **`.env`** (never committed): local values, one copy per machine.
 
 ## Getting shared secrets
 

@@ -182,8 +182,8 @@ that this is a laptop in WSL, not the target server.
 
 ## Not covered or unconfirmed
 
-- The integration script that sends alerts to the backend (`POST /v1/analyze`),
-  and how a container reaches the backend (`127.0.0.1` inside a container is the
-  container itself).
+- The Wazuh manager is not yet configured to invoke `backend/messenger.py`
+  automatically. A container must use a reachable backend host address;
+  `127.0.0.1` inside a container is the container itself.
 - The Groq review step and the dashboard.
 - Running this on a machine other than the author's.
