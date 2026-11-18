@@ -4,11 +4,10 @@ import Badge from '../components/Badge.jsx'
 import Icon from '../components/Icon.jsx'
 import { ActivityChart, SeverityChart } from '../components/Charts.jsx'
 
-function Alerts({ data, onSelect }) {
+function Alerts({ data, onSelect, source, onSourceChange }) {
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState('All')
   const [status, setStatus] = useState('All')
-  const [source, setSource] = useState('Backend')
   const [result, setResult] = useState({ alerts: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -69,7 +68,7 @@ function Alerts({ data, onSelect }) {
         <label>
           Alert data
           <select value={source} onChange={(event) => {
-            setSource(event.target.value)
+            onSourceChange(event.target.value)
             setSearch('')
             setSeverity('All')
             setStatus('All')
@@ -91,7 +90,7 @@ function Alerts({ data, onSelect }) {
         )}
       </div>
       {source === 'Backend' && loading ? (
-        <section className="panel" role="status">Loading alerts from the backend…</section>
+        <section className="panel" role="status" aria-live="polite">Loading alerts from the backend…</section>
       ) : source === 'Backend' && error ? (
         <section className="panel connection-error" role="alert">
           <h2>Alerts unavailable</h2>
@@ -162,9 +161,8 @@ function Alerts({ data, onSelect }) {
                   <th>Source host</th>
                   <th>{source === 'Backend' ? 'Groq severity' : 'Severity'}</th>
                   <th>Status</th>
-                  {source === 'Demo' && <th>
-                    <span className="sr-only">Details</span>
-                  </th>}
+                  <th>Groq review</th>
+                  <th><span className="sr-only">Details</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -172,13 +170,13 @@ function Alerts({ data, onSelect }) {
                   <tr key={alert.id}>
                     <td>{alert.time}</td>
                     <td>
-                      {source === 'Demo' ? <button
+                      <button
                         type="button"
                         className="table-link"
                         onClick={() => onSelect(alert)}
                       >
                         {alert.title}
-                      </button> : <strong>{alert.title}</strong>}
+                      </button>
                       <span className="cell-note">
                         {alert.id} · {alert.source}
                       </span>
@@ -190,7 +188,10 @@ function Alerts({ data, onSelect }) {
                     <td>
                       <Badge>{alert.status}</Badge>
                     </td>
-                    {source === 'Demo' && <td>
+                    <td>
+                      <Badge>{{ pending: 'Waiting', done: 'Done', unavailable: 'Not analyzed' }[alert.reviewStatus] || 'Not analyzed'}</Badge>
+                    </td>
+                    <td>
                       <button
                         type="button"
                         className="icon-button"
@@ -199,14 +200,14 @@ function Alerts({ data, onSelect }) {
                       >
                         <Icon name="arrow" />
                       </button>
-                    </td>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           {alerts.length === 0 && (
-            <p className="empty-state">{records.length === 0
+            <p className="empty-state" role="status">{records.length === 0
               ? 'No alerts have been received yet.'
               : 'No alerts match your filters.'}</p>
           )}

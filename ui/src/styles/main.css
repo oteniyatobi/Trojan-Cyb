@@ -1197,6 +1197,68 @@ dd {
   margin-bottom: var(--space-3);
 }
 
+.detail-toolbar {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.alert-detail-grid h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.alert-detail-grid h3 {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.alert-detail-grid .detail-badges,
+.alert-detail-grid .section-heading {
+  margin-bottom: 0;
+}
+
+.alert-detail-grid p {
+  overflow-wrap: anywhere;
+}
+
+.evidence-summary,
+.review-message {
+  padding: var(--space-4);
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+}
+
+.evidence-summary p,
+.review-message p {
+  margin-top: var(--space-3);
+  font-size: 0.8125rem;
+}
+
+.review-message > .icon {
+  margin-bottom: var(--space-3);
+}
+
+.review-waiting,
+.badge-waiting {
+  background: var(--color-primary-soft);
+  color: var(--color-badge-text);
+}
+
+.review-unavailable,
+.badge-not-analyzed {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
+.badge-done {
+  background: var(--color-success-soft);
+  color: var(--color-success-text);
+}
+
 .compact-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

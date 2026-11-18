@@ -30,6 +30,7 @@ function App() {
   })
   const [collapsed, setCollapsed] = useState(window.innerWidth <= 700)
   const [route, setRoute] = useState(window.location.hash.slice(1) || '/login')
+  const [alertSource, setAlertSource] = useState('Backend')
   const [scans, setScans] = useState(demoData.scans)
   const [workspace, setWorkspace] = useState(demoData.workspace)
 
@@ -39,8 +40,9 @@ function App() {
     page === 'alerts'
       ? demoData.alerts.find((alert) => alert.id === alertId)
       : null
+  const isBackendAlert = page === 'alerts' && /^[1-9]\d*$/.test(alertId || '')
   const pageNotFound =
-    !activePage || (alertId && !selectedAlert) || route.split('/').length > 3
+    !activePage || (alertId && !selectedAlert && !isBackendAlert) || route.split('/').length > 3
 
   useEffect(() => {
     function updateRoute() {
@@ -124,7 +126,7 @@ function App() {
             <h1>
               {pageNotFound
                 ? 'Page not found'
-                : selectedAlert
+                : alertId
                   ? 'Alert Detail'
                   : activePage}
             </h1>
@@ -152,14 +154,21 @@ function App() {
                 <Overview data={demoData} onNavigate={navigate} />
               )}
               {activePage === 'Alerts' &&
-                (selectedAlert ? (
+                (alertId ? (
                   <AlertDetail
-                    alert={selectedAlert}
-                    onBack={() => navigate('Alerts')}
+                    key={alertId}
+                    demoAlert={selectedAlert}
+                    alertId={alertId}
+                    onBack={() => {
+                      setAlertSource(selectedAlert ? 'Demo' : 'Backend')
+                      navigate('Alerts')
+                    }}
                   />
                 ) : (
                   <Alerts
                     data={demoData}
+                    source={alertSource}
+                    onSourceChange={setAlertSource}
                     onSelect={(alert) => {
                       window.location.hash = '/alerts/' + alert.id
                     }}

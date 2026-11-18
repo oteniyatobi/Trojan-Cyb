@@ -1,6 +1,6 @@
 # TROJAN UI
 
-The frontend for TROJAN, a university project helping SMEs in developing countries understand and monitor cybersecurity risks. The package name is `trojan-ui`. The interface includes demo pages using local JSON data. The Alerts list also supports the Flask API.
+The frontend for TROJAN, a university project helping SMEs in developing countries understand and monitor cybersecurity risks. The package name is `trojan-ui`. The interface includes demo pages using local JSON data. The Alerts list and alert details also support the Flask API.
 
 ## Technology stack
 
@@ -114,13 +114,13 @@ Screenshots are kept outside `src/` and are not imported into React components. 
 ## Currently implemented
 
 - **Overview:** KPI cards, severity breakdown, activity chart, detection categories, and a sample briefing.
-- **Alerts:** Flask list with loading, empty, error, and retry states; search and filters; an explicit Demo option with sample charts and clickable sample details. Backend detail links will be added in the next step.
+- **Alerts:** Flask list with loading, empty, error, and retry states; search and filters; an explicit Demo option with sample charts and clickable sample details. Live detail links load the individual alert, with original evidence beside its Groq review.
 - **Findings:** vulnerability table, search, severity filter, and suggested next steps.
 - **Scans:** sample requests, status counts, and a form that adds a request to a local demo queue. It never contacts the target or runs a scanner.
 - **Health:** service status cards and a searchable host list.
 - **Settings:** demo account details and editable workspace/notification preferences. Saving does not send emails or contact a service.
 
-Navigation uses hash routes and one React state value, without a routing library. Scans and saved settings remain available while switching pages; a browser reload resets them to the JSON defaults. Search filters reset when leaving their page. Pages other than the backend Alerts list still use demo data.
+Navigation uses hash routes and one React state value, without a routing library. Scans and saved settings remain available while switching pages; a browser reload resets them to the JSON defaults. Search filters reset when leaving their page. Pages other than backend Alerts and Alert Detail still use demo data.
 
 ## Demo data and the future Flask API
 
@@ -134,11 +134,25 @@ Open Alerts and leave **Alert data** set to **Backend**. `Alerts.jsx` calls `get
 
 The page shows loading, an empty result, a connection/response error with **Try again**, or the returned alerts. Requests time out after ten seconds and are cancelled when leaving the page or switching data sources. **Refresh alerts** requests the latest records manually; automatic updates are a later task. Search and filters cover the loaded records, and the caption shows how many were loaded out of the backend total.
 
-Groq severity comes from `review.severity`; it is not inferred from Wazuh's numeric rule level. Missing reviews show **Not rated**. Backend statuses are displayed as returned by Flask. Live detail requests and the three review states will be connected in the next step.
+Groq severity comes from `review.severity`; it is not inferred from Wazuh's numeric rule level. Missing reviews show **Not rated**. Backend statuses are displayed as returned by Flask. Alert Detail requests `GET /v1/alerts/<id>` through the same service file. Review progress is separate from incident status: `pending` → **Waiting**, `done` → **Done**, and `unavailable` → **Not analyzed**. Only a completed review displays AI guidance. Missing review content is treated as not analyzed; original evidence stays visible.
 
 Choose **Demo** explicitly to preview the existing sample records and detail pages without Flask. Failed backend requests never fall back to demo records automatically. Sample charts appear only in Demo mode. Overview and the other pages remain demo screens, so their counts may differ from the backend list.
 
 For real requests, Flask must run on port 8000 with a valid PostgreSQL `DATABASE_URL` in the root `.env` and the required database tables. Supabase public frontend settings do not replace that connection string. Keep database credentials and backend keys out of `VITE_` variables. The current demo login does not implement authentication. The existing Vite proxy is for development; deployed hosting must also forward `/v1` to Flask.
+
+### Preview the three review states
+
+Choose **Demo** on Alerts and open one of the first three records:
+
+| Demo alert | Review state | What you should see |
+| --- | --- | --- |
+| `ALT-001` | Done | Wazuh evidence and example Groq guidance side by side |
+| `ALT-002` | Waiting | Original evidence with a waiting message; no AI guidance |
+| `ALT-003` | Not analyzed | Original evidence with an unavailable message; no AI guidance |
+
+These states are stored explicitly in `src/data/demo.json` as `reviewStatus`. Completed examples have a nested `review` object matching Flask's review fields; pending and unavailable examples have `review: null`. Every demo detail has a visible sample-data notice. Back to alerts returns to the appropriate data source.
+
+Backend detail pages support loading, connection errors, missing-alert errors, and manual refresh. Refresh reads the stored result; it does not request a new Groq analysis. Neither backend polling nor an analysis retry worker has been added. Live database verification still requires a working Flask connection.
 
 ## Planned next steps
 
@@ -166,7 +180,7 @@ The URL changes when you navigate, using the part after `#`:
 
 - `#/login`
 - `#/overview`
-- `#/alerts` and `#/alerts/ALT-001`
+- `#/alerts`, `#/alerts/ALT-001` (demo), and `#/alerts/123` (backend ID)
 - `#/findings`
 - `#/scans`
 - `#/health`

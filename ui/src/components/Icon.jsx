@@ -1,4 +1,6 @@
 const paths = {
+  clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M12 7v5l3 2',
+  review: 'M9 3h6l1 4 4 1v6l-4 1-1 4H9l-1-4-4-1V8l4-1z M9 11l2 2 4-4',
   chevron: 'M6 9l6 6 6-6',
   hosts: 'M3 4h18v12H3z M8 21h8 M12 16v5',
   check: 'M5 12l4 4L19 6',
