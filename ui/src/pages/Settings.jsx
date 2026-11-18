@@ -64,7 +64,7 @@ function Settings({ workspace, onSave, theme, onToggleTheme }) {
         </form>
       </section>
       <section className="panel detail-panel">
-        <h2>Demo account</h2>
+        <h2>Account</h2>
         <dl className="detail-list">
           <div>
             <dt>Name</dt>

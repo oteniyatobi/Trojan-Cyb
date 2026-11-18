@@ -1,561 +1,134 @@
-import os
-import json
-import uuid
-import logging
 import hmac
-import hashlib
-from datetime import datetime
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker, joinedload
-from groq_review import get_review, check_review, get_groq_key
-from flask import Flask,  request, jsonify, g
+import json
+import os
+
 from dotenv import load_dotenv
-from models import Alert, Review, Setting, ApiKey
-from cryptography.fernet import Fernet, InvalidToken
+from flask import Flask, jsonify, request
+from groq_review import check_review, get_review
+from supabase_store import persist_alert, persist_findings
+
 load_dotenv()
 
-# Database
-DATABASE_URL = os.getenv('DATABASE_URL')
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is not set.")
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={
-        "connect_timeout": 5,
-        "options": "-c app.org_id=00000000-0000-0000-0000-000000000001",
-    },
-)
-Session = sessionmaker(bind=engine)
-
-# Single-tenant prototype: every row gets the same org UUID. When
-# multi-tenancy is added, this comes from the authenticated user.
-DEFAULT_ORG_ID = uuid.UUID(os.environ.get(
-    "DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001"
-))
-
-def _lookup_org_for_key(raw_key: str):
-    """Return the org UUID for a bearer token, or None if not found."""
-    if not raw_key:
-        return None
-    h = hashlib.sha256(raw_key.encode()).hexdigest()
-    session = Session()
-    try:
-        row = session.query(ApiKey).filter_by(key_hash=h).one_or_none()
-        return row.org_id if row else None
-    finally:
-        session.close()
-
 app = Flask(__name__)
-
-logger = logging.getLogger(__name__)
-
-
-# TROJAN_SECRET_KEY encrypts the Groq key before it is stored in
-# settings.value. It is separate from TROJAN_API_KEY (Wazuh ingest)
-# and TROJAN_ADMIN_KEY (admin UI). Rotating it requires decrypting
-# and re-encrypting the stored key.
-SECRET_KEY = os.environ.get("TROJAN_SECRET_KEY", "").encode()
-cipher = None
-if SECRET_KEY:
-    try:
-        cipher = Fernet(SECRET_KEY)
-    except (ValueError, TypeError) as e:
-        logger.warning("TROJAN_SECRET_KEY is invalid (%s); admin key storage disabled", e)
-
-# TROJAN_ADMIN_KEY authorizes /v1/settings/groq-key. Separate from the
-# ingest key so Wazuh's copy in ossec.conf cannot reach the admin API.
-ADMIN_KEY = os.environ.get("TROJAN_ADMIN_KEY", "")
-# Models this deployment is allowed to use. Kept narrow so a compromised
-# admin key can only switch between known-good models, not to an arbitrary
-# string.
-# Only models this Groq account serves. Verified against the API:
-# openai/gpt-oss-120b returns 200; llama-3.1-8b-instant and
-# llama-3.3-70b-versatile return 404 model_not_found. Keep this set
-# in sync with the account's catalog; a stale name here would let an
-# admin store a model the pipeline cannot call.
-ALLOWED_MODELS = {"openai/gpt-oss-120b"}
+MAX_ALERTS = 1000
 
 
-@app.before_request
-def check_api_key():
-    """Resolve the caller's org from the bearer token, enforce ingest auth.
+def ingestion_auth_error():
+    expected_key = os.getenv("TROJAN_INGESTION_API_KEY")
+    if not expected_key:
+        return jsonify({"error": "Ingestion API is not configured"}), 503
 
-    Every request: look up the bearer token in api_keys and set g.org_id.
-    POST /v1/analyze: additionally require TROJAN_API_KEY or a valid
-    api_keys row. Read endpoints accept requests without a key and
-    default to the prototype org.
-    """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:] if auth.startswith("Bearer ") else ""
-
-    org_id = _lookup_org_for_key(token)
-    g.org_id = org_id or DEFAULT_ORG_ID
-
-    if request.method != "POST" or request.path != "/v1/analyze":
-        return
-
-    expected = os.environ.get("TROJAN_API_KEY", "")
-    if not expected:
-        return
-    if org_id is None and not hmac.compare_digest(token.encode(), expected.encode()):
-        return jsonify({"error": "unauthorized"}), 401
-
-
-def _require_admin():
-    """return a [json, status] tuple to reject, or NOne to allow
-
-    Uses TROJAN_ADMIN_KEY and not TROJAN_API_KEY.
-    Admin endpoints are separate from wazuh ingest path so
-    a leaked ingest key cannot reach the admin API
-    """
-    if not ADMIN_KEY:
-        return jsonify({"error": "admin key not configured"}), 503
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:] if auth.startswith("Bearer ") else ""
-    if not hmac.compare_digest(token.encode(), ADMIN_KEY.encode()):
-        return jsonify({"error": "unauthorized"}), 401
+    authorization = request.headers.get("Authorization", "")
+    supplied_key = authorization.removeprefix("Bearer ")
+    if not authorization.startswith("Bearer ") or not hmac.compare_digest(
+        supplied_key,
+        expected_key,
+    ):
+        return jsonify({"error": "Unauthorized"}), 401
     return None
 
 
-@app.errorhandler(IntegrityError)
-def handle_integrity_error(e):
-    return jsonify({
-        "error": "duplicate alert",
-        "detail": "This wazuh_id is already stored.",
-    }), 409
-
-MAX_ALERTS = 1000
-
-# HELPERS
-def _obj(value) -> dict:
-    """Return value if it is a dict, else {} (Wazuh fields may be null)."""
-    return value if isinstance(value, dict) else {}
-
-
-def _to_int(value):
-    """Suricata sends numbers as strings ("80", "3"); return int or None."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _to_time(value):
-    """Parse Wazuh's timestamp (e.g. 2026-11-03T09:55:15.767+0000)."""
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-
-def alert_to_dict(alert: Alert) -> dict:
-    """Serialise an Alert and its optional Review for the dashboard."""
-    d = {
-        "id": alert.id,
-        "wazuh_id": alert.wazuh_id,
-        "received_at": alert.received_at.isoformat() if alert.received_at else None,
-        "rule_id": alert.rule_id,
-        "rule_level": alert.rule_level,
-        "description": alert.description,
-        "src_ip": alert.src_ip,
-        "agent_name": alert.agent_name,
-        "event_time": alert.event_time.isoformat() if alert.event_time else None,
-        "signature_id": alert.signature_id,
-        "signature_name": alert.signature_name,
-        "suricata_sev": alert.suricata_sev,
-        "dest_ip": alert.dest_ip,
-        "dest_port": alert.dest_port,
-        "proto": alert.proto,
-        "fired_times": alert.fired_times,
-        "rule_groups": alert.rule_groups,
-        "agent_id": alert.agent_id,
-        "manager_name": alert.manager_name,
-        "decoder_name": alert.decoder_name,
-        "location": alert.location,
-        "status": alert.status,
-        "review_status": alert.review_status,
-    }
-    if alert.review:
-        d["review"] = {
-            "attack_type": alert.review.attack_type,
-            "severity": alert.review.severity,
-            "headline": alert.review.headline,
-            "what_happened": alert.review.what_happened,
-            "why_it_matters": alert.review.why_it_matters,
-            "steps": alert.review.steps or [],
-            "when_to_escalate": alert.review.when_to_escalate,
-            "model": alert.review.model,
-            "attempts": alert.review.attempts,
-        }
-    else:
-        d["review"] = None
-    return d
-
-# ROUTES
-
-@app.route('/v1/health', methods=['GET'])
+@app.route("/v1/health", methods=["GET"])
 def health():
-    key = get_groq_key()  # settings first, then GROQ_API_KEY
-    db_ok = False
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-            db_ok = True
-    except Exception:
-        pass
     return jsonify({
-        'status': 'ok',
-        'groq': 'set' if key else 'not set',
-        'database': 'ok' if db_ok else 'unavailable',
+        "status": "ok",
+        "groq": "set" if os.getenv("GROQ_API_KEY") else "not set",
+        "supabase": "configured" if (
+            os.getenv("SUPABASE_URL")
+            and os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            and os.getenv("TROJAN_ORGANIZATION_ID")
+        ) else "not configured",
     }), 200
 
 
-@app.route('/v1/analyze', methods=['POST'])
+@app.route("/v1/analyze", methods=["POST"])
 def analyze():
+    auth_error = ingestion_auth_error()
+    if auth_error:
+        return auth_error
+
     data = request.get_json(silent=True)
-      
     if data is None:
-        return jsonify({'error': 'Invalid JSON'}), 400
-    if not isinstance(data, dict) or 'alerts' not in data:
-        return jsonify({'error': 'Missing "alerts" field in request body'}), 422
-    if not isinstance(data['alerts'], list):
-        return jsonify({'error': '"alerts" field must be a list'}), 422
-    if not data['alerts'] or len(data['alerts']) == 0:
-        return jsonify({'error': '"alerts" field must be a non-empty list'}), 422
-    if len(data['alerts']) > MAX_ALERTS:
-        return jsonify({'error': f'"alerts" field must contain no more than {MAX_ALERTS} items'}), 413
-    else:
-        session = Session()
-        results = []
+        return jsonify({"error": "Invalid JSON"}), 400
+    if not isinstance(data, dict) or "alerts" not in data:
+        return jsonify({"error": 'Missing "alerts" field in request body'}), 422
+    if not isinstance(data["alerts"], list):
+        return jsonify({"error": '"alerts" field must be a list'}), 422
+    if not data["alerts"]:
+        return jsonify({"error": '"alerts" field must be a non-empty list'}), 422
+    if len(data["alerts"]) > MAX_ALERTS:
+        return jsonify({
+            "error": f'"alerts" field must contain no more than {MAX_ALERTS} items',
+        }), 413
+    if any(not isinstance(alert, dict) for alert in data["alerts"]):
+        return jsonify({"error": "Each alert must be a JSON object"}), 422
+
+    results = []
+    for index, alert in enumerate(data["alerts"]):
         try:
-            for payload in data["alerts"]:
-                if not isinstance(payload, dict):
-                    return jsonify({"error": "Each alert must be a JSON object"}), 422
+            review = get_review(json.dumps(alert))
+            problems = check_review(review)
+            if problems:
+                review = {"status": "unavailable", "problems": problems}
+            else:
+                review["status"] = "done"
+        except Exception as error:
+            app.logger.exception("Groq analysis failed for alert %s", index)
+            review = {"status": "unavailable", "problems": [str(error)]}
 
-                # Unique Wazuh id: fall back to a generated one if the caller
-                #  did not supply an id, so the unique constraint is satisfied.
-                wazuh_id = (payload.get("id") or payload.get("wazuh_id")
-                            or f"generated-{uuid.uuid4()}")
-
-                # Wazuh nests the original event under "data"; for Suricata
-                # alerts the signature lives in data.alert. Any block can be
-                # missing or null depending on the decoder.
-                rule = _obj(payload.get("rule"))
-                data_block = _obj(payload.get("data"))
-                agent = _obj(payload.get("agent"))
-                manager = _obj(payload.get("manager"))
-                decoder = _obj(payload.get("decoder"))
-                suricata_alert = _obj(data_block.get("alert"))
-
-                groups = rule.get("groups")
-                rule_id = rule.get("id")
-                signature_id = suricata_alert.get("signature_id")
-
-                alert = Alert(
-                    org_id=DEFAULT_ORG_ID,
-                    wazuh_id=str(wazuh_id),
-                    event_time=_to_time(payload.get("timestamp")),
-                    rule_id=str(rule_id) if rule_id is not None else None,
-                    rule_level=_to_int(rule.get("level")),
-                    rule_groups=groups if isinstance(groups, list) else None,
-                    # Suricata's own id (e.g. 1000002); Wazuh's rule_id is the
-                    # generic 86601 "Suricata: Alert" for every signature.
-                    signature_id=str(signature_id) if signature_id is not None else None,
-                    signature_name=suricata_alert.get("signature"),
-                    # Suricata severity: 1 = highest, 3 = lowest.
-                    suricata_sev=_to_int(suricata_alert.get("severity")),
-                    fired_times=_to_int(rule.get("firedtimes")) or 1,
-                    description=rule.get("description") or payload.get("description"),
-                    src_ip=(data_block.get("src_ip") or data_block.get("srcip")
-                            or payload.get("src_ip")),
-                    dest_ip=(data_block.get("dest_ip") or data_block.get("dstip")
-                             or payload.get("dest_ip")),
-                    dest_port=_to_int(data_block.get("dest_port") or data_block.get("dstport")),
-                    proto=data_block.get("proto") or data_block.get("protocol"),
-                    agent_id=agent.get("id"),
-                    agent_name=agent.get("name"),
-                    manager_name=manager.get("name"),
-                    decoder_name=decoder.get("name"),
-                    location=payload.get("location"),
-                    raw=payload,
-                    status="new",
-                    review_status="pending",
-                )
-                session.add(alert)
-                # Commit the alert before calling Groq, so the alert is stored even
-                # # if the Groq call fails. The review is a second transaction below.
-                session.commit()
-
-                # Per-org hourly limit on Groq reviews. If the org has used
-                # its quota, skip the call and mark the alert so a
-                # reconciler can retry it later.
-                hourly_limit = int(os.environ.get("GROQ_REVIEWS_PER_HOUR", "100"))
-                recent = session.execute(text(
-                    "SELECT COUNT(*) FROM reviews "
-                    "WHERE org_id = :org "
-                    "AND created_at > now() - interval '1 hour'"
-                ), {"org": str(alert.org_id)}).scalar()
-                if recent is not None and recent >= hourly_limit:
-                    alert.review_status = "rate_limited"
-                    session.commit()
-                    results.append({
-                        "id": alert.id,
-                        "wazuh_id": alert.wazuh_id,
-                        "review_status": "rate_limited",
-                        "limit": hourly_limit,
-                    })
-                    continue
-
-                try:
-                    review_data = get_review(json.dumps(payload))
-                    problems = check_review(review_data)
-                except Exception as e:
-                    problems = [str(e)]
-                    review_data = {}
-
-                if problems:
-                    alert.review_status = "unavailable"
-                    session.commit()
-                    results.append({
-                        "id": alert.id,
-                        "wazuh_id": alert.wazuh_id,
-                        "review_status": "unavailable",
-                        "problems": problems,
-                    })
-                    continue
-
-                review = Review(
-                    org_id=alert.org_id,
-                    alert_id=alert.id,
-                    attack_type=review_data.get("attack_type"),
-                    severity=review_data.get("severity"),
-                    headline=review_data.get("headline") or review_data.get("summary"),
-                    what_happened=review_data.get("what_happened") or review_data.get("details"),
-                    why_it_matters=review_data.get("why_it_matters"),
-                    steps=review_data.get("steps") or review_data.get("recommendations"),
-                    when_to_escalate=review_data.get("when_to_escalate"),
-                    model=review_data.get("model"),
-                    attempts=review_data.get("attempts", 1),
-                )
-                session.add(review)
-                alert.review_status = "done"
-                session.commit()
-
-                results.append({
-                    "id": alert.id,
-                    "wazuh_id": alert.wazuh_id,
-                    "review_status": "done",
-                    "review": {
-                        "attack_type": review.attack_type,
-                        "severity": review.severity,
-                        "headline": review.headline,
-                    },
-                })
-
-            return jsonify({'results': results}), 200
-        except IntegrityError:
-            session.rollback()
-            return jsonify({
-                "error": "duplicate alert",
-                "detail": "This wazuh_id is already stored.", 
-            }), 409
+        try:
+            alert_id = persist_alert(alert, review)
         except Exception:
-            session.rollback()
-            logger.exception("analyze failed")
-            return jsonify({"error": "internal error"}), 500
-        finally:
-            session.close()
-
-
-@app.route('/v1/alerts', methods=['GET'])
-def list_alerts():
-    org_id = g.org_id
-    try:
-        limit = min(max(int(request.args.get('limit', 100)), 1), 500)
-        offset = max(int(request.args.get('offset', 0)), 0)
-    except ValueError:
-        return jsonify({"error": "limit and offset must be integers"}), 400
-    severity = request.args.get('severity')
-
-    session = Session()
-    try:
-        query = (session.query(Alert)
-                 .filter(Alert.org_id == org_id)
-                 .options(joinedload(Alert.review)))
-        if severity:
-            query = query.join(Review, isouter=True).filter(Review.severity == severity)
-
-        total = query.count()
-        rows = (query.order_by(Alert.id.desc()).offset(offset).limit(limit).all())
-        return jsonify({
-            'alerts': [alert_to_dict(alert) for alert in rows],
-            'total': total,
-            'limit': limit,
-            'offset': offset,
-        }), 200
-    finally:
-        session.close()
-
-
-@app.route('/v1/alerts/<int:alert_id>', methods=['GET'])
-def get_alert(alert_id):
-    session = Session()
-    try:
-        alert = (session.query(Alert)
-                 .filter(Alert.id == alert_id)
-                 .filter(Alert.org_id == g.org_id)
-                 .one_or_none())
-        if alert is None:
-            return jsonify({'error': 'Alert not found'}), 404
-        return jsonify(alert_to_dict(alert)), 200
-    finally:
-        session.close()
-
-
-@app.route('/v1/settings/groq-key', methods=['PUT'])
-def set_groq_key():
-    denied = _require_admin()
-    if denied:
-        return denied
-    if cipher is None:
-        return jsonify({"error": "TROJAN_SECRET_KEY is not set"}), 503
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"error": "body must be a JSON object"}), 400
-    key = data.get("key", "")
-    if not isinstance(key, str) or not key.startswith("gsk_"):
-        return jsonify({"error": "key must start with 'gsk_'"}), 422
-
-    if len(key) < 50:
-        return jsonify({"error": "key must be at least 50 characters"}), 422
-
-    encrypted = cipher.encrypt(key.encode()).decode()
-    session = Session()
-
-    try:
-        setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
-
-        if setting is None:
-            setting = Setting(org_id=DEFAULT_ORG_ID, key="groq_api_key",
-                              value=encrypted, is_secret=True)
-            session.add(setting)
-        else:
-            setting.value = encrypted
-
-        session.commit()
-        return jsonify({"set": True, "last4": key[-4:]}), 200
-    finally:
-        session.close()
-
-
-@app.route('/v1/settings/groq-key', methods=['GET'])
-def get_groq_key_status():
-    denied = _require_admin()
-    if denied:
-        return denied
-
-    session = Session()
-    try:
-        setting = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").one_or_none()
-        if setting is None:
-            env_key = os.environ.get("GROQ_API_KEY", "")
+            app.logger.exception("Supabase could not store alert %s", index)
             return jsonify({
-                "set": bool(env_key),
-                "source": "env" if env_key else "none",
-                "last4": env_key[-4:] if env_key else None,
-            }), 200
+                "error": "Alert analysis completed but Supabase storage failed",
+                "alert_index": index,
+                "stored_count": index,
+            }), 503
 
-        if cipher is None:
-            return jsonify({"error": "TROJAN_SECRET_KEY is not set"}), 503
-
-        try:
-            decrypted = cipher.decrypt(setting.value.encode()).decode()
-        except InvalidToken:
-            return jsonify({"error": "stored key can not be decrypted"}), 500
-        return jsonify({
-            "set": True,
-            "source": "database",
-            "last4": decrypted[-4:],
-        }), 200
-    finally:
-        session.close()
+        results.append({"alert_id": alert_id, "llm_review": review})
+    return jsonify({"results": results}), 200
 
 
-@app.route('/v1/settings/groq-key', methods=['DELETE'])
-def delete_groq_key():
-    denied = _require_admin()
-    if denied:
-        return denied
-
-    session = Session()
-
-    try:
-        deleted = session.query(Setting).filter_by(org_id=DEFAULT_ORG_ID, key="groq_api_key").delete()
-        session.commit()
-        return jsonify({"deleted": deleted > 0, "fallback": "env"}), 200
-    finally:
-        session.close()
-
-
-@app.route('/v1/settings/groq-model', methods=['PUT'])
-def set_groq_model():
-    denied = _require_admin()
-    if denied:
-        return denied
+@app.route("/v1/findings", methods=["POST"])
+def ingest_findings():
+    auth_error = ingestion_auth_error()
+    if auth_error:
+        return auth_error
 
     data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"error": "body must be a JSON object"}), 400
-    model = data.get("model", "")
-    if not isinstance(model, str) or model not in ALLOWED_MODELS:
+    if not isinstance(data, dict) or not isinstance(data.get("findings"), list):
+        return jsonify({"error": "Request body must contain a findings list"}), 422
+    if not data["findings"]:
+        return jsonify({"error": "findings must be a non-empty list"}), 422
+    if len(data["findings"]) > MAX_ALERTS:
         return jsonify({
-            "error": "model must be one of: " + ", ".join(sorted(ALLOWED_MODELS))
-        }), 422
+            "error": f"findings must contain no more than {MAX_ALERTS} items",
+        }), 413
 
-    session = Session()
+    valid_severities = {"low", "medium", "high", "critical"}
+    for finding in data["findings"]:
+        if not isinstance(finding, dict):
+            return jsonify({"error": "Each finding must be a JSON object"}), 422
+        if not (finding.get("target") or finding.get("asset")):
+            return jsonify({"error": "Each finding must include a target or asset"}), 422
+        if not finding.get("title"):
+            return jsonify({"error": "Each finding must include a title"}), 422
+        if finding.get("severity") not in valid_severities:
+            return jsonify({"error": "Each finding must include a valid severity"}), 422
+
     try:
-        setting = session.query(Setting).filter_by(
-            org_id=DEFAULT_ORG_ID, key="groq_model"
-        ).one_or_none()
-        if setting is None:
-            setting = Setting(
-                org_id=DEFAULT_ORG_ID,
-                key="groq_model",
-                value=model,
-                is_secret=False,
-            )
-            session.add(setting)
-        else:
-            setting.value = model
-        session.commit()
-        return jsonify({"model": model}), 200
-    finally:
-        session.close()
+        inserted_count = persist_findings(data["findings"])
+    except Exception:
+        app.logger.exception("Supabase could not store vulnerability findings")
+        return jsonify({"error": "Supabase storage failed"}), 503
+
+    return jsonify({"stored": inserted_count}), 201
 
 
-@app.route('/v1/settings/groq-model', methods=['GET'])
-def get_groq_model_status():
-    denied = _require_admin()
-    if denied:
-        return denied
-
-    session = Session()
-    try:
-        setting = session.query(Setting).filter_by(
-            org_id=DEFAULT_ORG_ID, key="groq_model"
-        ).one_or_none()
-        if setting is None:
-            env_model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
-            return jsonify({"model": env_model, "source": "env"}), 200
-        return jsonify({"model": setting.value, "source": "database"}), 200
-    finally:
-        session.close()
-
-
-if __name__ == '__main__':
-    app.run(debug=False, host='127.0.0.1', port=8000)
-
+if __name__ == "__main__":
+    app.run(
+        debug=os.getenv("FLASK_DEBUG", "0") == "1",
+        host="0.0.0.0",
+        port=int(os.getenv("API_PORT", "8000")),
+    )

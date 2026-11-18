@@ -96,8 +96,8 @@ function Header({
         <button
           type="button"
           className="icon-button"
-          aria-label="Sign out of demo"
-          title="Sign out of demo"
+          aria-label="Sign out"
+          title="Sign out"
           onClick={onSignOut}
         >
           <Icon name="logout" />
