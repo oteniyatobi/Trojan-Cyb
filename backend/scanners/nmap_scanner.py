@@ -8,6 +8,7 @@ Each port is one finding with medium severity
 
 import subprocess
 import xml.etree.ElementTree as ET
+from datetime import datetime
 
 
 def run_nmap_scan(target: str) -> list:
@@ -34,6 +35,7 @@ def run_nmap_scan(target: str) -> list:
                     continue
                 service_el = port.find("service")
                 service = service_el.get("name") if service_el is not None else "unknown"
+                evidence = f"state={state_el.get('state')} reason={state_el.get('reason', 'unknown')}"
 
                 findings.append({
                     "tool": "nmap",
@@ -42,7 +44,10 @@ def run_nmap_scan(target: str) -> list:
                     "severity": "medium",
                     "title": f"Open Port: {port_id}/{protocol}",
                     "description": f"Service '{service}' is listening on port {port_id}/{protocol}.",
+                    "evidence": evidence,
+                    "raw_output_ref": None,  # nmap runs with -oX - to stdout; no file to point at
                     "cve_id": None,
+                    "found_at": datetime.utcnow().isoformat() + "Z",
                 })
 
     except subprocess.TimeoutExpired:

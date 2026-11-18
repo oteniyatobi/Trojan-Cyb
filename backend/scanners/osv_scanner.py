@@ -8,6 +8,7 @@ and checks each package against its vulnabilities database.
 
 import json
 import subprocess
+from datetime import datetime
 
 
 def run_osv_scan(directory: str) -> list:
@@ -42,14 +43,18 @@ def run_osv_scan(directory: str) -> list:
                 pkg_name = pkg.get("name", "unknown")
                 pkg_version = pkg.get("version", "unknown")
                 for vuln in package.get("vulnerabilities", []):
+                    evidence = f"vuln_id={vuln.get('id', '?')} summary={vuln.get('summary', '(no summary)')}"
                     findings.append({
                         "tool": "osv-scanner",
                         "target": source,
-                        "finding_type": "vulnerability_dependency",
+                        "finding_type": "vulnerable_dependency",
                         "severity": "high",
                         "title": f"Vulnerable dependency: {pkg_name} {pkg_version}",
-                        "description": vuln.get("summary", vuln.get("details", "known vulnerability")),
+                        "description": vuln.get("summary", vuln.get("details", "Known vulnerability")),
+                        "evidence": evidence,
+                        "raw_output_ref": None,
                         "cve_id": vuln.get("id"),
+                        "found_at": datetime.utcnow().isoformat() + "Z",
                     })
     except subprocess.TimeoutExpired:
         print(f"osv-scanner scan for {directory} timed out")
