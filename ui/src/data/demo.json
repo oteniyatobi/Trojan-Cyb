@@ -1,4 +1,9 @@
 {
+  "organizations": [
+    { "id": "DEMO-ORG-001", "name": "ALU University", "email": "it@alu.example", "status": "Active" },
+    { "id": "DEMO-ORG-002", "name": "Kigali Retail", "email": "admin@retail.example", "status": "Active" },
+    { "id": "DEMO-ORG-003", "name": "Lakeview Clinic", "email": "it@clinic.example", "status": "Paused" }
+  ],
   "snapshotDate": "5 November 2026",
   "workspace": {
     "name": "ALU University",

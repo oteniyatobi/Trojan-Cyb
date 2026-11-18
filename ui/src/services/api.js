@@ -48,3 +48,12 @@ export async function getAlert(id, signal) {
   }
   return formatAlert(data)
 }
+
+export async function getHealth(signal) {
+  const data = await getJson('/health', signal)
+  if (!data || !['ok', 'unavailable'].includes(data.database)
+    || !['set', 'not set'].includes(data.groq)) {
+    throw new Error('The backend returned an unexpected health response.')
+  }
+  return data
+}

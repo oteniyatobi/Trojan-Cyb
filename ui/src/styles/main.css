@@ -1616,3 +1616,73 @@ input[type='checkbox'] {
 .profile-theme { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border-top: 1px solid var(--color-border); font-size: 0.8125rem; }
 .profile-theme .theme-toggle { width: auto; padding: 6px; }
 .sidebar-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--color-border); }
+
+.sidebar-collapsed .navigation-item {
+  position: relative;
+}
+.sidebar-collapsed .sidebar { z-index: 9; }
+.sidebar-collapsed .navigation-text {
+  display: block;
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 11;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-card);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+.sidebar-collapsed .navigation-item:hover .navigation-text,
+.sidebar-collapsed .navigation-item:focus-visible .navigation-text {
+  visibility: visible;
+}
+
+/* Keep forms and notices readable on narrow screens. */
+.button-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.settings-status {
+  margin: var(--space-5) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.error-message {
+  margin-top: var(--space-4);
+  color: var(--color-danger-text);
+  font-size: 0.875rem;
+}
+.primary-button:disabled,
+.sign-out-button:disabled {
+  opacity: 1;
+  color: var(--color-muted);
+  background: var(--color-neutral-soft);
+  cursor: not-allowed;
+}
+.sign-out-button { border-radius: 0; }
+.backend-summary { margin-top: var(--space-6); }
+.demo-notice { flex-wrap: wrap; }
+.demo-notice .text-button { margin-left: auto; }
+.panel p { line-height: 1.75; }
+.table-scroll table { font-size: 0.8125rem; }
+.table-scroll th { font-size: 0.6875rem; }
+.settings-layout label, .login-content label { font-size: 0.8125rem; }
+@media (max-width: 700px) {
+  .appearance-panel { align-items: stretch; }
+  .appearance-panel > label { width: 100%; }
+  .demo-notice .text-button { margin-left: 0; }
+  .button-row > button { width: 100%; }
+  .profile-menu { width: min(220px, calc(100vw - 100px)); }
+}

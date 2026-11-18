@@ -17,7 +17,7 @@ function AlertDetail({ demoAlert, alertId, onBack }) {
 
     getAlert(alertId, controller.signal)
       .then((result) => {
-        if (active) setAlert(result)
+        if (active) { setAlert(result); setError('') }
       })
       .catch((error) => {
         if (active) {
@@ -41,6 +41,12 @@ function AlertDetail({ demoAlert, alertId, onBack }) {
       controller.abort()
     }
   }, [demoAlert, alertId, attempt])
+
+  useEffect(() => {
+    if (demoAlert || alert?.reviewStatus !== 'pending') return
+    const interval = setInterval(() => setAttempt(value => value + 1), 15000)
+    return () => clearInterval(interval)
+  }, [demoAlert, alert?.reviewStatus])
 
   function refreshAlert() {
     setLoading(true)
@@ -140,7 +146,7 @@ function AlertDetail({ demoAlert, alertId, onBack }) {
                 : 'A Groq review is unavailable. You can still investigate the original Wazuh evidence.'}</p>
               <p>{demoAlert
                 ? 'This is a fixed demo example; its review state will not change.'
-                : 'Refresh checks for an updated result. It does not request a new analysis.'}</p>
+                : 'Checks every 15 seconds while waiting. Refresh reads the result; it does not request a new analysis.'}</p>
             </div>}
           </section>
         </div>

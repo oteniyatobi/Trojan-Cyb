@@ -3,7 +3,7 @@ const severityColors = ['var(--color-danger)', 'var(--color-warning)', 'var(--co
 export function SeverityChart({ alerts }) {
   const levels = ['Critical', 'High', 'Medium', 'Low']
   const counts = levels.map(
-    (level) => alerts.filter((alert) => alert.severity === level).length,
+    (level) => alerts.filter((alert) => alert.severity.toLowerCase() === level.toLowerCase()).length,
   )
   const total = alerts.length
   let offset = 0

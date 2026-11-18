@@ -4,7 +4,7 @@ import Badge from '../components/Badge.jsx'
 import Icon from '../components/Icon.jsx'
 import { ActivityChart, SeverityChart } from '../components/Charts.jsx'
 
-function Alerts({ data, onSelect, source, onSourceChange }) {
+function Alerts({ data, onSelect, source }) {
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState('All')
   const [status, setStatus] = useState('All')
@@ -21,7 +21,7 @@ function Alerts({ data, onSelect, source, onSourceChange }) {
 
     getAlerts(controller.signal)
       .then((response) => {
-        if (active) setResult(response)
+        if (active) { setResult(response); setError('') }
       })
       .catch((error) => {
         if (active) {
@@ -46,6 +46,12 @@ function Alerts({ data, onSelect, source, onSourceChange }) {
     }
   }, [source, attempt])
 
+  useEffect(() => {
+    if (source !== 'Backend') return
+    const interval = setInterval(() => setAttempt(value => value + 1), 15000)
+    return () => clearInterval(interval)
+  }, [source])
+
   function refreshAlerts() {
     setLoading(true)
     setError('')
@@ -65,24 +71,10 @@ function Alerts({ data, onSelect, source, onSourceChange }) {
   return (
     <>
       <div className="filters">
-        <label>
-          Alert data
-          <select value={source} onChange={(event) => {
-            onSourceChange(event.target.value)
-            setSearch('')
-            setSeverity('All')
-            setStatus('All')
-            setLoading(true)
-            setError('')
-          }}>
-            <option>Backend</option>
-            <option>Demo</option>
-          </select>
-        </label>
         <p className="panel-caption">
           {source === 'Demo'
             ? 'Sample records only. These are not live security events.'
-            : 'Flask alerts · latest 100 records. Refresh to check for new alerts.'}
+            : 'Flask alerts · latest 100 records. Updates every 15 seconds.'}
         </p>
         {source === 'Backend' && (
           <button type="button" className="text-button" disabled={loading}
@@ -95,7 +87,7 @@ function Alerts({ data, onSelect, source, onSourceChange }) {
         <section className="panel connection-error" role="alert">
           <h2>Alerts unavailable</h2>
           <p>{error}</p>
-          <p>Check the Flask terminal and database configuration, then try again. Demo records are available from the Alert data menu.</p>
+          <p>Check the Flask terminal and database configuration, then try again. Choose Demo in Settings to preview sample records.</p>
           <button type="button" className="text-button"
             onClick={refreshAlerts}>Try again</button>
         </section>

@@ -1,4 +1,5 @@
 const paths = {
+  organizations: 'M3 21V7h10v14 M13 11h8v10 M6 10h4 M6 14h4 M7 21v-3h2v3 M16 14h2 M16 17h2 M2 21h20',
   clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M12 7v5l3 2',
   review: 'M9 3h6l1 4 4 1v6l-4 1-1 4H9l-1-4-4-1V8l4-1z M9 11l2 2 4-4',
   chevron: 'M6 9l6 6 6-6',
