@@ -443,6 +443,15 @@ p {
   font-size: 0.8125rem;
 }
 
+.connection-error {
+  border-color: var(--color-danger-border);
+}
+
+.connection-error p {
+  margin: var(--space-3) 0;
+  font-size: 0.8125rem;
+}
+
 .error-message {
   margin-bottom: var(--space-4);
   padding: var(--space-3);

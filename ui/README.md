@@ -1,6 +1,6 @@
 # TROJAN UI
 
-The frontend for TROJAN, a university project helping SMEs in developing countries understand and monitor cybersecurity risks. The package name is `trojan-ui`. The interface includes six working demo pages using local JSON data, ready for a later Flask API connection.
+The frontend for TROJAN, a university project helping SMEs in developing countries understand and monitor cybersecurity risks. The package name is `trojan-ui`. The interface includes demo pages using local JSON data. The Alerts list also supports the Flask API.
 
 ## Technology stack
 
@@ -10,7 +10,7 @@ The frontend for TROJAN, a university project helping SMEs in developing countri
 - npm for dependencies and scripts.
 - Oxlint for lint checks, as supplied by the official Vite React JavaScript template.
 
-The project was created with `create-vite@9.3.3 --template react`. Vite reads frontend environment settings from the repository-root `.env`. React type definitions supplied by the template support editor hints; the application uses JavaScript, not TypeScript.
+The project was created with `create-vite@9.3.3 --template react`. Vite reads frontend environment settings from `ui/.env.local`. Flask reads backend settings from the repository-root `.env`. React type definitions supplied by the template support editor hints; the application uses JavaScript, not TypeScript.
 
 ## Requirements
 
@@ -26,8 +26,6 @@ npm --version
 From the repository root:
 
 ```bash
-# From the repository root, create .env from .env.example only if it does not already exist.
-# Otherwise, add the missing VITE_SUPABASE_* values without overwriting existing settings.
 cd ui
 npm install
 npm run dev
@@ -69,6 +67,8 @@ ui/
 │   ├── data/
 │   │   └── demo.json         # All starting demo records
 │   ├── pages/               # One component per page, plus alert details
+│   ├── services/
+│   │   └── api.js            # Flask requests and alert field mapping
 │   ├── styles/
 │   │   └── main.css
 │   ├── App.jsx
@@ -114,13 +114,13 @@ Screenshots are kept outside `src/` and are not imported into React components. 
 ## Currently implemented
 
 - **Overview:** KPI cards, severity breakdown, activity chart, detection categories, and a sample briefing.
-- **Alerts:** title/host search, severity and status filters, and clickable alert details with evidence and example guidance.
+- **Alerts:** Flask list with loading, empty, error, and retry states; search and filters; an explicit Demo option with sample charts and clickable sample details. Backend detail links will be added in the next step.
 - **Findings:** vulnerability table, search, severity filter, and suggested next steps.
 - **Scans:** sample requests, status counts, and a form that adds a request to a local demo queue. It never contacts the target or runs a scanner.
 - **Health:** service status cards and a searchable host list.
 - **Settings:** demo account details and editable workspace/notification preferences. Saving does not send emails or contact a service.
 
-Navigation uses hash routes and one React state value, without a routing library. Scans and saved settings remain available while switching pages; a browser reload resets them to the JSON defaults. Search filters reset when leaving their page. All security records are demo data.
+Navigation uses hash routes and one React state value, without a routing library. Scans and saved settings remain available while switching pages; a browser reload resets them to the JSON defaults. Search filters reset when leaving their page. Pages other than the backend Alerts list still use demo data.
 
 ## Demo data and the future Flask API
 
@@ -128,7 +128,17 @@ Navigation uses hash routes and one React state value, without a routing library
 
 Overview alert counts and host totals are calculated from the records. Monthly resolved incidents and weekly activity are separate sample history. The AI text is written example guidance, not output from a running model. All addresses and organizations are illustrative.
 
-`App.jsx` is the entry point for the data. When the Flask endpoints are available, replace the JSON import with API loading there and pass the returned data to the same page components. Keep the same field names where practical, and add loading/error messages at that stage. Queue creation and settings saving will also need real API endpoints; currently they only update React state. No backend files or API calls were added in this phase.
+### First Flask connection: Alerts list
+
+Open Alerts and leave **Alert data** set to **Backend**. `Alerts.jsx` calls `getAlerts()` from `src/services/api.js`. That function requests `GET /v1/alerts?limit=100` and maps the Flask field names to the fields displayed in the table. Vite forwards `/v1` requests to `http://localhost:8000` using the existing development proxy.
+
+The page shows loading, an empty result, a connection/response error with **Try again**, or the returned alerts. Requests time out after ten seconds and are cancelled when leaving the page or switching data sources. **Refresh alerts** requests the latest records manually; automatic updates are a later task. Search and filters cover the loaded records, and the caption shows how many were loaded out of the backend total.
+
+Groq severity comes from `review.severity`; it is not inferred from Wazuh's numeric rule level. Missing reviews show **Not rated**. Backend statuses are displayed as returned by Flask. Live detail requests and the three review states will be connected in the next step.
+
+Choose **Demo** explicitly to preview the existing sample records and detail pages without Flask. Failed backend requests never fall back to demo records automatically. Sample charts appear only in Demo mode. Overview and the other pages remain demo screens, so their counts may differ from the backend list.
+
+For real requests, Flask must run on port 8000 with a valid PostgreSQL `DATABASE_URL` in the root `.env` and the required database tables. Supabase public frontend settings do not replace that connection string. Keep database credentials and backend keys out of `VITE_` variables. The current demo login does not implement authentication. The existing Vite proxy is for development; deployed hosting must also forward `/v1` to Flask.
 
 ## Planned next steps
 
