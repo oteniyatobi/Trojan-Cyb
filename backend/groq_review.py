@@ -1,7 +1,10 @@
 import os
 import json
+import logging
+import time
 import requests
 from dotenv import load_dotenv
+
 load_dotenv()
 
 REQUIRED_KEYS = [
@@ -53,40 +56,81 @@ You only advise. Never say you blocked, fixed or changed anything.
 If the alert fits none of the attack types, use Other or unknown.
 Do not invent details that are not in the alert."""
 url = "https://api.groq.com/openai/v1/chat/completions"
+logger = logging.getLogger(__name__)
 
 
 def get_groq_key():
     return os.environ.get("GROQ_API_KEY", "")
 
 
+def _retry_delay(status_code, headers, attempt):
+    if status_code == 429:
+        retry_after = headers.get("Retry-After")
+        try:
+            return min(int(retry_after), 60) if retry_after else 5
+        except (TypeError, ValueError):
+            return 5
+    if 500 <= status_code < 600:
+        return 2 ** attempt
+    return None
+
+
+def _positive_int_setting(name, default):
+    value = int(os.environ.get(name, default))
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1")
+    return value
+
+
 def get_review(alert):
+    key = get_groq_key()
+    if not key:
+        raise RuntimeError("No Groq API key configured")
+
     body = {
-        "model": os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b'),
+        "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": alert}
         ],
-        "response_format": {"type": "json_object"}
+        "response_format": {"type": "json_object"},
     }
-    # Read the key once per review (not once at import), so a key saved
-    # through /v1/settings/groq-key takes effect without a restart.
-    key = get_groq_key()
-    if not key:
-        raise Exception("No Groq API key configured")
     headers = {
         "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    for attempt in range(3):
+    timeout = _positive_int_setting("GROQ_TIMEOUT_SECONDS", "15")
+    max_retries = _positive_int_setting("GROQ_MAX_RETRIES", "3")
+
+    for attempt in range(max_retries):
         try:
-            response = requests.post(url, headers=headers, json=body, timeout=15)
+            response = requests.post(url, headers=headers, json=body, timeout=timeout)
             if response.status_code == 200:
-                text = response.json()['choices'][0]['message']['content']
-                review = json.loads(text)
-                return review
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed with error: {e}")
-    raise Exception("Failed to get review after 3 attempts")
+                content = response.json()["choices"][0]["message"]["content"]
+                return json.loads(content)
+
+            wait = _retry_delay(response.status_code, response.headers, attempt)
+            if wait is None:
+                logger.warning("Groq returned non-retryable HTTP %d", response.status_code)
+                break
+            logger.warning(
+                "Groq returned HTTP %d; retrying after %d seconds",
+                response.status_code,
+                wait,
+            )
+            if attempt + 1 < max_retries:
+                time.sleep(wait)
+        except requests.RequestException as error:
+            logger.warning(
+                "Groq request failed on attempt %d/%d (%s)",
+                attempt + 1,
+                max_retries,
+                type(error).__name__,
+            )
+            if attempt + 1 < max_retries:
+                time.sleep(2 ** attempt)
+
+    raise RuntimeError(f"Failed to get review after {max_retries} attempts")
 
 
 def check_groq_api_key():

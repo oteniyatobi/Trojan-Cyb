@@ -57,6 +57,9 @@ Import this GitHub repository into Vercel with the repository root (`./`) select
 - `TROJAN_ORGANIZATION_ID`
 - `TROJAN_INGESTION_API_KEY`
 - `GROQ_API_KEY` (optional)
+- `GROQ_MODEL` (optional; defaults to `openai/gpt-oss-120b`)
+- `GROQ_TIMEOUT_SECONDS` (optional; defaults to `15`)
+- `GROQ_MAX_RETRIES` (optional; defaults to `3`)
 
 The Wazuh messenger must use the deployed project URL as `TROJAN_API_URL`. Its API key must match `TROJAN_INGESTION_API_KEY`. Scanner scripts that require installed Nmap or Wapiti executables still need an environment that provides those binaries; they are not run by this Vercel deployment.
 
