@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY api.py groq_review.py models.py ./
+COPY api.py app.py groq_review.py supabase_store.py ./
 
 RUN useradd --create-home appuser
 USER appuser

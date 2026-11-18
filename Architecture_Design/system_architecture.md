@@ -2,9 +2,9 @@
 
 AI powered cybersecurity platform for SMEs in developing countries.
 
-TROJAN watches an organisation's computers and network, uses AI to spot and explain threats, scans for known weaknesses, and tells a non specialist what to do next. It runs on one on premise server and keeps working when the internet is down.
+TROJAN watches an organisation's computers and network, uses AI to spot and explain threats, scans for known weaknesses, and tells a non specialist what to do next. Local event collection can run on site; authentication and the Supabase-backed dashboard require an internet connection.
 
-![TROJAN system architecture](TROJAN_System_Architecture.png)
+![TROJAN Supabase architecture](supabase_architecture.svg)
 
 ## Contents
 
@@ -25,13 +25,13 @@ TROJAN watches an organisation's computers and network, uses AI to spot and expl
 
 ## 1. Overview
 
-TROJAN delivers the four features on the pitch slides through four layers, and every feature keeps working when the internet is down. Each feature can be traced to the components that provide it.
+TROJAN delivers the four features on the pitch slides through four layers. On-site monitoring and local detection continue without internet; Supabase login, cloud database reads and writes, and the dashboard require connectivity.
 
 | Slide feature | What the user gets | Components that deliver it | Detail in |
 | --- | --- | --- | --- |
 | AI Threat Detection | Unusual network activity and likely attacks flagged, scored and explained | Wazuh Manager, Suricata, AI Inference Engine (anomaly detection, triage, response templates) | Sections 3, 4, 6 |
 | Vulnerability Scanning | Weaknesses found on each machine before an attacker uses them | Scan orchestrator running Wazuh vulnerability detection, Nmap, Nuclei, Wapiti, OSV-Scanner, OWASP ZAP, Nikto, OpenVAS and SQLMap, with a local CVE feed | Section 5 |
-| Offline Monitoring | Monitoring and alerts continue with no internet | Everything inside the client site, plus the store and forward queue for later sync | Sections 9, 10 |
+| Offline Monitoring | Local event collection and detection continue with no internet | On-site Wazuh, Suricata and Indexer | Section 9 |
 | Security Dashboard | Threats, alerts, scan results and guidance in one place | Web Dashboard, reading from the Wazuh Indexer and the AI engine | Sections 3, 4 |
 
 The slides describe the same system as four stages.
@@ -47,7 +47,7 @@ Two scope notes. Cloud sync is design only in the 7 week prototype, so only its 
 
 ## 2. Deployment view
 
-The whole platform runs on one on premise server, and only the agent and dashboard ports are open to the office network.
+The monitoring stack runs on one on-premise server. Supabase Auth and the application database are hosted cloud services, so staff need internet access to sign in and use the dashboard.
 
 ```text
 OFFICE NETWORK                          TROJAN SERVER (8 GB RAM, 16 GB advised with OpenVAS)
@@ -55,13 +55,13 @@ OFFICE NETWORK                          TROJAN SERVER (8 GB RAM, 16 GB advised w
 | Monitored hosts    |--- 1514 TCP ---> | Wazuh Manager --> AI Inference Engine        |
 | (Wazuh agent)      |                  | Suricata -------> Wazuh Indexer              |
 | Network switch     |--- mirror -----> | Scan orchestrator --> Platform backend       |
-| Staff computers    |--- 443 HTTPS --> | Web Dashboard <-----> Platform backend       |
-| Approved targets   |<-- scans ------- | PostgreSQL, Redis, files on disk             |
-+--------------------+                  | Sync client (optional) - - -> Cloud          |
+| Staff computers    |--- HTTPS ------> | Web Dashboard <-----> Platform backend       |
+| Approved targets   |<-- scans ------- | Wazuh Indexer, files on disk                 |
++--------------------+                  | Platform backend - - -> Supabase (cloud)     |
                                         +----------------------------------------------+
 ```
 
-Monitored hosts send events to the Wazuh Manager on port 1514, staff reach the dashboard on port 443, and the network switch copies traffic to Suricata through a mirror port or tap. The scan orchestrator reaches out over the network to scan approved ranges and websites. Every other link stays inside the server. Section 4 lists each hop and Section 8 lists every port. The dashed link to the cloud is optional and works only when the internet does.
+Monitored hosts send events to the Wazuh Manager on port 1514, staff reach the dashboard over HTTPS, and the network switch copies traffic to Suricata through a mirror port or tap. The scan orchestrator reaches out over the network to scan approved ranges and websites. Supabase provides hosted authentication, database, and realtime services, so dashboard data access requires internet connectivity. Section 4 lists each hop and Section 8 lists the network ports.
 
 ## 3. Component view
 
@@ -75,7 +75,7 @@ Ten components make up the platform, and each has one job, one technology and on
 | Wazuh Indexer | Store and search events and alerts | Wazuh Indexer | Wazuh Manager | Dashboard backend |
 | Vulnerability scanner | Find known weaknesses and open services | Scan orchestrator with adapters for Wazuh, Nmap, Nuclei, Wapiti, OSV-Scanner, ZAP, Nikto, OpenVAS, SQLMap | Agent software lists, approved network ranges, website URLs | Platform backend |
 | AI Inference Engine | Anomaly detection, alert triage, response templates | Python service, TensorFlow Lite or ONNX Runtime | Wazuh Manager integration | Platform backend |
-| Platform backend | Authentication, tenancy, incidents, scan results, API for the dashboard | FastAPI, PostgreSQL, Redis | AI engine, scanner, Indexer | Dashboard, sync client |
+| Platform backend | Tenant-aware API for incidents and scan results | Flask, Supabase Auth and Supabase-managed database | AI engine, scanner, Indexer | Dashboard, Supabase |
 | Web Dashboard | Show alerts, scan findings, guidance and settings | React with Next.js | Platform backend | The user |
 | Template library | Twenty plain language playbooks plus a manual investigation fallback | Versioned files read by the AI engine | Maintained by the team | AI engine |
 | Sync client (optional) | Queue and exchange data with the cloud | Store and forward queue | Platform backend, cloud | Cloud, platform backend |
@@ -84,7 +84,7 @@ The agent does no AI work. Keeping all inference on the server means models are 
 
 ## 4. Data flow
 
-Data moves through eight hops across the four stages Monitor, Detect, Alert and Respond, and every hop stays inside the client site.
+The monitoring and detection pipeline stays on site until alert summaries and findings are sent to Supabase over authenticated HTTPS. Raw event evidence remains in the local Wazuh Indexer.
 
 | Hop | Stage | From to | Transport | Payload |
 | --- | --- | --- | --- | --- |
@@ -92,14 +92,14 @@ Data moves through eight hops across the four stages Monitor, Detect, Alert and 
 | 2 | Monitor | Suricata to Wazuh Manager | Manager reads Suricata's EVE JSON log on the same server | One JSON line per flow or network alert |
 | 3 | Detect | Wazuh Manager to Wazuh Indexer | Local, TLS | Every event and every alert |
 | 4 | Detect | Wazuh Manager to AI Inference Engine | HTTP REST with JSON on the local server | Alert requests and flow window requests (Section 6) |
-| 5 | Detect | Vulnerability scanner to Platform backend | Internal REST | Findings: host, software or port, CVE identifier, severity |
-| 6 | Detect | AI Inference Engine to Platform backend | Internal REST | Result: category, severity, confidence, playbook identifier |
-| 7 | Alert | Platform backend to Dashboard | HTTPS, with WebSocket for live updates | Incidents and findings |
-| 8 | Respond | Dashboard to Platform backend | HTTPS | Acknowledge, resolve, add a note |
+| 5 | Detect | Vulnerability scanner to Platform backend | Authenticated REST | Findings: host, software or port, CVE identifier, severity |
+| 6 | Detect | AI Inference Engine to Platform backend | Authenticated REST | Result: category, severity, confidence, playbook identifier |
+| 7 | Alert | Supabase to Dashboard | Authenticated HTTPS; Realtime planned | RLS-scoped incidents and findings |
+| 8 | Respond | Dashboard to Platform backend | Authenticated HTTPS | Planned acknowledge, resolve, add a note |
 
 The AI engine receives two kinds of request. An alert request carries one event that a Wazuh rule has already flagged, so the engine can triage it and attach a playbook. A window request carries a summary of recent network flows from Suricata, so the anomaly detector can catch behaviour that no rule describes. Both are answered within the 100 millisecond target per flow window.
 
-The platform backend stores each result as an incident in PostgreSQL and keeps the raw evidence in the Wazuh Indexer, linked by event identifier. Redis carries live updates to the dashboard and caches frequent lookups; it holds nothing that cannot be rebuilt. When the AI engine cannot match a threat to one of the twenty playbooks, the incident carries the manual investigation template instead, so no alert reaches the dashboard without guidance.
+The Flask backend stores analyzed alerts and submitted scanner findings in Supabase and keeps raw evidence in the Wazuh Indexer, linked by event identifier. Its machine-ingestion endpoints require a per-installation key and take the organization ID from server configuration, not the request. Supabase Realtime can deliver database changes to the dashboard. Supabase's database engine is PostgreSQL, but the project uses the hosted Supabase service rather than running its own PostgreSQL or Redis containers. When the AI engine cannot match a threat to one of the twenty playbooks, the incident carries the manual investigation template instead, so no alert reaches the dashboard without guidance.
 
 ### Worked example: a password guessing attack
 
@@ -110,7 +110,7 @@ The platform backend stores each result as an incident in PostgreSQL and keeps t
 
 ## 5. Vulnerability scanning subsystem
 
-Vulnerability scanning runs on the server, with several tools sharing one scan queue, so the monitored machines carry no extra load and everything except scanning an internet hosted website works offline.
+Vulnerability scanning runs on the server, with several tools sharing one scan queue, so the monitored machines carry no extra load. Scans of local targets can run offline, but saving findings to Supabase requires connectivity.
 
 | Scope | Tools | What they find |
 | --- | --- | --- |
@@ -139,7 +139,9 @@ Vulnerability scanning runs on the server, with several tools sharing one scan q
 
 ## 6. Inference API contract
 
-The AI engine exposes one analysis call and two status calls, and version 1 is frozen at the end of Week 2 so the AI engineer and the lead developer can build against it in parallel. After the freeze only new optional fields may be added; nothing may be renamed, removed or made required.
+The following is the target contract for the planned local AI inference engine, not the current Flask/Groq endpoint. The current Flask `POST /v1/analyze` is a bearer-key-protected ingestion route that accepts an `alerts` array, creates Groq reviews, and persists alert summaries to Supabase. Because the planned contract uses the same path with a different payload, the two APIs must be versioned or reconciled before the local inference engine is integrated.
+
+The planned AI engine exposes one analysis call and two status calls, and version 1 is frozen at the end of Week 2 so the AI engineer and the lead developer can build against it in parallel. After the freeze only new optional fields may be added; nothing may be renamed, removed or made required.
 
 | Call | Purpose |
 | --- | --- |
@@ -197,20 +199,20 @@ The Wazuh Manager integration treats a failed call as non fatal: the rule based 
 
 ## 7. Storage and tenancy
 
-Three stores hold the data, each for one purpose, and every record carries an organisation identifier so one client's data can never appear in another's view.
+The Wazuh Indexer holds raw local evidence; Supabase holds tenant-scoped application records; server disk holds models and scanner feeds.
 
 | Data | Where | Kept for |
 | --- | --- | --- |
 | Raw events | Wazuh Indexer | 30 days, then reduced to daily summaries and purged |
-| Alerts and incident reports | Wazuh Indexer and PostgreSQL | 12 months |
-| Vulnerability findings | PostgreSQL | 12 months |
-| Organisations, users, roles, agents, playbook versions, audit log | PostgreSQL | While in use, audit log 12 months |
-| Live update channel and cache | Redis | Short lived, rebuildable |
+| Alerts and incident reports | Wazuh Indexer and Supabase | 12 months |
+| Vulnerability findings | Supabase | 12 months |
+| Organisations, users, roles, agents, playbook versions, audit log | Supabase Auth and database | While in use, audit log 12 months |
+| Live update channel | Supabase Realtime | Transient |
 | Models, template library, CVE feed snapshot, sync queue files | Server disk | Latest versions, queue until acknowledged |
 
-The administrator can change every retention period. The server's 100 GB of storage is the limit these periods must fit inside, and the dashboard warns when disk use passes a threshold the administrator sets.
+Local event retention is constrained by the server's 100 GB disk, with disk-use warnings at an administrator-set threshold. Supabase application-record retention is managed separately from the local disk.
 
-**Tenancy.** A tenant is one client organisation. Every PostgreSQL table has an organisation column, and row level security policies make the database itself refuse any query that does not match the organisation of the logged in user, so a bug in application code cannot leak data across clients. In the Wazuh Indexer each organisation has its own set of indices and its own role, and agents enrol into a Wazuh group named for their organisation.
+**Tenancy.** A tenant is one client organisation. Tenant-owned Supabase tables carry an `organization_id`; database RLS policies enforce membership on every query. A shared Supabase project is used, not a separate database per organization. A new user can sign up with an organization name; a database function creates the organization and gives that user the `org_admin` role atomically. Further organization membership is granted through an administrator workflow, and organization users cannot grant themselves platform-admin status. TROJAN platform administrators are provisioned separately and may access all organizations. The browser uses only the Supabase publishable key, never a service-role key. In the Wazuh Indexer each organisation has its own set of indices and its own role, and agents enrol into a Wazuh group named for their organisation.
 
 **Roles.**
 
@@ -225,30 +227,31 @@ The 7 week prototype runs one organisation, but the schema, policies and indices
 
 ## 8. Security
 
-The server exposes only three ports to the office network, and every internal service listens on the server itself, so a compromised workstation cannot reach the database, the indexer or the AI engine directly.
+Only the agent, dashboard, and authenticated ingestion endpoints are exposed to the office network. Local internal services remain on the server; Supabase is reached over HTTPS, and RLS isolates every tenant's application records.
 
 | Port | Service | Reachable from |
 | --- | --- | --- |
 | 1514 TCP | Wazuh agent events | Monitored machines |
 | 1515 TCP | Agent enrolment | Monitored machines |
 | 443 TCP | Web Dashboard over HTTPS | Staff computers |
-| 8000 | AI Inference Engine | Server only |
+| 443 TCP | Supabase HTTPS APIs | Platform backend and staff browsers |
+| 8000 TCP | TROJAN Flask API | Server and approved ingestion clients |
+| 8001 TCP | AI Inference Engine | Server only |
 | 9200 | Wazuh Indexer | Server only |
 | 55000 | Wazuh API | Server only |
-| 5432 | PostgreSQL | Server only |
-| 6379 | Redis | Server only |
+| N/A | Supabase-managed database and Realtime | Supabase service over HTTPS |
 
 **Agent enrolment.** A new agent can only join with the enrolment password the administrator sets, and it is placed in its organisation's group. After enrolment each agent talks to the manager with its own key, and Wazuh encrypts that traffic. An agent that is lost or retired is removed by the administrator and its key stops working.
 
 **User login.** Passwords are stored as salted hashes, never in readable form. Administrators can turn on a second factor with a time based code. Repeated failed logins lock the account for a period, and sessions use short lived tokens. The dashboard is served over HTTPS with a certificate made at installation, which the client can replace with their own.
 
-**Between services.** Internal calls carry a key issued at installation. The AI engine and database accept connections from the local server only.
+**Between services.** Internal calls carry a key issued at installation. The local AI engine and Wazuh Indexer accept connections from the local server only. Supabase access uses authenticated HTTPS requests and database RLS; any server-side service-role key is restricted to the backend and is never sent to browsers.
 
-**Encryption at rest.** The installation guide tells the client to place the data disk on an encrypted volume. The sync queue and any backup are encrypted with AES 256, as Section 10 requires for data bound for the cloud.
+**Encryption at rest.** The installation guide tells the client to place the local data disk on an encrypted volume. Supabase-hosted data uses the provider's at-rest protections; the sync queue and any backup are encrypted with AES 256, as Section 10 requires for data bound for the cloud.
 
 **Audit trail.** Logins, setting changes, scan approvals, agent enrolments and removals, and every acknowledgement of an alert are written to an audit log that administrators can read but not edit.
 
-**What leaves the site.** Raw logs and event contents never leave the client's premises. Only anonymised threat statistics and model performance figures are queued for the cloud, and only when the administrator has turned sync on.
+**What leaves the site.** Raw event evidence remains in the local Wazuh Indexer. Alert summaries and vulnerability findings are sent to Supabase over HTTPS for the dashboard; the alert payload stored in Supabase is limited to the event ID and timestamp. The current Groq review integration sends full alert JSON to Groq when configured. Optional anonymised telemetry remains a separate sync feature.
 
 ## 9. Failure and offline behaviour
 
@@ -256,7 +259,7 @@ No single failure stops monitoring altogether, and the loss of internet changes 
 
 | What fails | What the user sees | What keeps working | Recovery |
 | --- | --- | --- | --- |
-| Internet connection | An offline marker and the age of the CVE feed | All monitoring, detection, scanning and the dashboard | Queued sync messages send in order when the link returns |
+| Internet connection or Supabase unavailable | Dashboard sign-in/data unavailable; alert/finding ingestion reports an error | On-site Wazuh collection and local detection continue; raw events stay in the Indexer | Restore connectivity; retry ingestion. Supabase writes are not durably queued by this design |
 | AI Inference Engine | Rule based alerts marked as not yet scored by the AI | Wazuh rules, Suricata, scanning, dashboard | Engine restarts, then unscored alerts are scored again |
 | An agent or its machine | An alert that the agent has gone silent | Every other agent and the server | Agent reconnects and sends what it buffered |
 | Link between agent and server | The same silent agent alert | The agent keeps a limited local buffer | Buffer is sent on reconnection, oldest events dropped if it overflowed |
@@ -300,7 +303,7 @@ Every message, in either direction, is one JSON file with the same envelope:
 
 **Model updates.** The cloud wins, but only after a check. The new model is stored aside from the live one and scored on a held out set of local data. It replaces the live model only if its score is at least 90 percent of the live model's score. If it fails, the live model stays in place, the failure shows on the health page, and the previous version is always kept for rollback.
 
-**Protection.** Data is encrypted in transit with TLS 1.3 and at rest with AES 256. The platform works fully when this layer is unavailable.
+**Protection.** Data is encrypted in transit with TLS 1.3 and at rest with AES 256. The optional sync layer can be unavailable without affecting local monitoring; Supabase login and dashboard data still require internet access.
 
 ## 11. Resource budget and traceability
 
@@ -313,7 +316,7 @@ The server's 8 GB of RAM is fully allocated in the plan below, so the Week 5 to 
 | Wazuh Manager | About 1 GB | Planning estimate |
 | Wazuh Indexer | About 2 GB | Planning estimate |
 | Suricata | About 1 GB | Planning estimate |
-| Platform backend, PostgreSQL and Redis together | About 1 GB | Planning estimate |
+| Platform backend | About 1 GB | Planning estimate |
 | Operating system and one capped scan job at a time | About 1 GB | Planning estimate |
 
 Each requirement in the proposal and on the slides maps to the part of this document that meets it.
@@ -323,7 +326,7 @@ Each requirement in the proposal and on the slides maps to the part of this docu
 | AI Threat Detection, Vulnerability Scanning, Offline Monitoring, Security Dashboard | Section 1 and the sections it points to |
 | Detection accuracy above 95 percent, false positives below 5 percent per dataset | AI engine design, Sections 3 and 6 |
 | Under 100 milliseconds per flow window | Section 6 |
-| Operates with no internet | Sections 9 and 10 |
+| Local monitoring operates with no internet | Section 9; cloud dashboard requires internet |
 | Store and forward synchronisation | Section 10 |
 | Template based incident response | Sections 3, 4 and 6 |
 | Multi tenancy and consultant access | Section 7 |

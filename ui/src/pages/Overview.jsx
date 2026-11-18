@@ -35,9 +35,9 @@ function Overview({ data, onNavigate }) {
       icon: 'hosts',
     },
     {
-      label: 'Resolved Incidents',
+      label: 'Resolved Alerts',
       value: data.overview.resolvedThisMonth,
-      detail: 'This month · demo history',
+      detail: 'This month',
       tone: 'green',
       icon: 'check',
     },
