@@ -8,6 +8,7 @@ import Findings from './Findings.jsx'
 import Scans from './Scans.jsx'
 import Health from './Health.jsx'
 import Settings from './Settings.jsx'
+import Admin from './Admin.jsx'
 import demo from '../data/demo.json'
 
 const pages = {
@@ -17,12 +18,14 @@ const pages = {
   scans: 'Scans',
   health: 'Health',
   settings: 'Settings',
+  organizations: 'Organizations',
 }
 
 function Demo({ route, theme, onToggleTheme }) {
   const [collapsed, setCollapsed] = useState(window.innerWidth <= 700)
   const [workspace, setWorkspace] = useState(demo.workspace)
   const [scans, setScans] = useState(demo.scans)
+  const [organizations, setOrganizations] = useState(demo.organizations)
 
   const [, , page = 'overview', alertId] = route.split('/')
   const activePage = pages[page] ?? 'Overview'
@@ -62,7 +65,7 @@ function Demo({ route, theme, onToggleTheme }) {
         }}
       />
       <div className={`app-body${collapsed ? ' sidebar-collapsed' : ''}`}>
-        <Sidebar activePage={activePage} onNavigate={navigate} />
+        <Sidebar activePage={activePage} onNavigate={navigate} isAdmin />
         <main className="main-content" id="main-content" tabIndex={-1}>
           <div className="page-heading">
             <h1>{selectedAlert ? 'Alert Detail' : activePage}</h1>
@@ -77,7 +80,7 @@ function Demo({ route, theme, onToggleTheme }) {
           {activePage === 'Overview' && <Overview data={demo} onNavigate={navigate} />}
           {activePage === 'Alerts' && (
             selectedAlert ? (
-              <AlertDetail alert={selectedAlert} onBack={() => navigate('Alerts')} />
+              <AlertDetail alert={selectedAlert} onBack={() => navigate('Alerts')} demo />
             ) : (
               <Alerts
                 data={demo}
@@ -86,6 +89,9 @@ function Demo({ route, theme, onToggleTheme }) {
                 }}
               />
             )
+          )}
+          {activePage === 'Organizations' && (
+            <Admin organizations={organizations} onChange={setOrganizations} />
           )}
           {activePage === 'Findings' && <Findings findings={demo.findings} />}
           {activePage === 'Scans' && <Scans scans={scans} onAddScan={addScan} />}

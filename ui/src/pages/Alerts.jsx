@@ -3,6 +3,8 @@ import Badge from '../components/Badge.jsx'
 import Icon from '../components/Icon.jsx'
 import { ActivityChart, SeverityChart } from '../components/Charts.jsx'
 
+const reviewLabels = { pending: 'Waiting', done: 'Done', unavailable: 'Not analyzed' }
+
 function Alerts({ data, onSelect }) {
   const [search, setSearch] = useState('')
   const [severity, setSeverity] = useState('All')
@@ -77,6 +79,7 @@ function Alerts({ data, onSelect }) {
                 <th>Source host</th>
                 <th>Severity</th>
                 <th>Status</th>
+                <th>Groq review</th>
                 <th>
                   <span className="sr-only">Details</span>
                 </th>
@@ -106,6 +109,9 @@ function Alerts({ data, onSelect }) {
                     <Badge>{alert.status}</Badge>
                   </td>
                   <td>
+                    <Badge>{reviewLabels[alert.reviewStatus] ?? 'Not analyzed'}</Badge>
+                  </td>
+                  <td>
                     <button
                       type="button"
                       className="icon-button"
@@ -121,7 +127,11 @@ function Alerts({ data, onSelect }) {
           </table>
         </div>
         {alerts.length === 0 && (
-          <p className="empty-state">No alerts match your filters.</p>
+          <p className="empty-state" role="status">
+            {data.alerts.length === 0
+              ? 'No alerts have been received yet.'
+              : 'No alerts match your filters.'}
+          </p>
         )}
       </section>
     </>

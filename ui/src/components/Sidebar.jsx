@@ -2,13 +2,13 @@ import Icon from './Icon.jsx'
 
 const navigationItems = ['Overview', 'Alerts', 'Findings', 'Scans', 'Health']
 
-function Sidebar({ activePage, onNavigate }) {
+function Sidebar({ activePage, onNavigate, isAdmin = false }) {
   return (
     <aside className="sidebar" id="sidebar">
       <nav aria-label="Workspace">
         <p className="navigation-label"></p>
         <ul className="navigation-list">
-          {navigationItems.map((item) => (
+          {(isAdmin ? ['Organizations', ...navigationItems] : navigationItems).map((item) => (
             <li key={item}>
               <button
                 type="button"

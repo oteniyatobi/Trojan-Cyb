@@ -1,4 +1,9 @@
 {
+  "organizations": [
+    { "id": "DEMO-ORG-001", "name": "ALU University", "email": "it@alu.example", "status": "Active" },
+    { "id": "DEMO-ORG-002", "name": "Kigali Retail", "email": "admin@retail.example", "status": "Active" },
+    { "id": "DEMO-ORG-003", "name": "Lakeview Clinic", "email": "it@clinic.example", "status": "Paused" }
+  ],
   "snapshotDate": "5 November 2026",
   "workspace": {
     "name": "ALU University",
@@ -34,6 +39,22 @@
   "alerts": [
     {
       "id": "ALT-001",
+      "reviewStatus": "done",
+      "ruleLevel": 10,
+      "review": {
+        "attack_type": "Repeated failed sign-ins",
+        "severity": "High",
+        "headline": "Repeated failed sign-ins",
+        "what_happened": "412 failed sign-in attempts from one address within 10 minutes.",
+        "why_it_matters": "Repeated attempts may indicate someone is trying to guess an account password.",
+        "steps": [
+          "Review the server's sign-in history.",
+          "Check whether any attempt succeeded.",
+          "Ask the administrator to review account lockout and multi-factor authentication."
+        ],
+        "when_to_escalate": "Ask your administrator to investigate if the activity cannot be explained or an account may be compromised.",
+        "model": "Demo example — no model called"
+      },
       "time": "09:41",
       "date": "2026-11-05",
       "title": "Repeated failed sign-ins",
@@ -43,16 +64,13 @@
       "source": "Wazuh",
       "rule": "5712",
       "sourceIp": "192.0.2.45",
-      "evidence": "412 failed sign-in attempts from one address within 10 minutes.",
-      "explanation": "Repeated attempts may indicate someone is trying to guess an account password.",
-      "steps": [
-        "Review the server's sign-in history.",
-        "Check whether any attempt succeeded.",
-        "Ask the administrator to review account lockout and multi-factor authentication."
-      ]
+      "evidence": "412 failed sign-in attempts from one address within 10 minutes."
     },
     {
       "id": "ALT-002",
+      "reviewStatus": "pending",
+      "ruleLevel": 14,
+      "review": null,
       "time": "09:26",
       "date": "2026-11-05",
       "title": "Unrecognized executable",
@@ -62,16 +80,13 @@
       "source": "Wazuh",
       "rule": "100201",
       "sourceIp": "192.0.2.24",
-      "evidence": "A previously unseen executable started from the user's temporary folder.",
-      "explanation": "Programs launched from temporary folders need review, especially when the user does not recognize them.",
-      "steps": [
-        "Confirm whether the user installed new software.",
-        "Review the process path and file signature.",
-        "Follow your incident procedure if the file cannot be verified."
-      ]
+      "evidence": "A previously unseen executable started from the user's temporary folder."
     },
     {
       "id": "ALT-003",
+      "reviewStatus": "unavailable",
+      "ruleLevel": 7,
+      "review": null,
       "time": "09:02",
       "date": "2026-11-05",
       "title": "Unusual outbound traffic",
@@ -81,15 +96,25 @@
       "source": "Suricata",
       "rule": "2001219",
       "sourceIp": "192.0.2.1",
-      "evidence": "Outbound traffic exceeded the demo baseline for 15 minutes.",
-      "explanation": "A large transfer can be normal, but an unexpected destination should be checked.",
-      "steps": [
-        "Identify the destination and originating device.",
-        "Confirm whether a backup or software update was running."
-      ]
+      "evidence": "Outbound traffic exceeded the demo baseline for 15 minutes."
     },
     {
       "id": "ALT-004",
+      "reviewStatus": "done",
+      "ruleLevel": 3,
+      "review": {
+        "attack_type": "Monitoring agent disconnected",
+        "severity": "Low",
+        "headline": "Monitoring agent disconnected",
+        "what_happened": "The endpoint has not reported for 25 minutes.",
+        "why_it_matters": "Monitoring has a gap while this endpoint is disconnected.",
+        "steps": [
+          "Check that the computer is powered on and connected.",
+          "Ask the administrator to check the monitoring agent."
+        ],
+        "when_to_escalate": "Ask your administrator to investigate if the activity cannot be explained or an account may be compromised.",
+        "model": "Demo example — no model called"
+      },
       "time": "08:45",
       "date": "2026-11-05",
       "title": "Monitoring agent disconnected",
@@ -99,15 +124,25 @@
       "source": "Wazuh",
       "rule": "504",
       "sourceIp": "192.0.2.30",
-      "evidence": "The endpoint has not reported for 25 minutes.",
-      "explanation": "Monitoring has a gap while this endpoint is disconnected.",
-      "steps": [
-        "Check that the computer is powered on and connected.",
-        "Ask the administrator to check the monitoring agent."
-      ]
+      "evidence": "The endpoint has not reported for 25 minutes."
     },
     {
       "id": "ALT-005",
+      "reviewStatus": "done",
+      "ruleLevel": 10,
+      "review": {
+        "attack_type": "Sensitive configuration changed",
+        "severity": "High",
+        "headline": "Sensitive configuration changed",
+        "what_happened": "File integrity monitoring detected a change to a protected configuration file.",
+        "why_it_matters": "Configuration changes should match an approved maintenance task.",
+        "steps": [
+          "Review who changed the file.",
+          "Compare the change with the maintenance log."
+        ],
+        "when_to_escalate": "Ask your administrator to investigate if the activity cannot be explained or an account may be compromised.",
+        "model": "Demo example — no model called"
+      },
       "time": "08:12",
       "date": "2026-11-05",
       "title": "Sensitive configuration changed",
@@ -117,15 +152,25 @@
       "source": "Wazuh",
       "rule": "550",
       "sourceIp": "192.0.2.12",
-      "evidence": "File integrity monitoring detected a change to a protected configuration file.",
-      "explanation": "Configuration changes should match an approved maintenance task.",
-      "steps": [
-        "Review who changed the file.",
-        "Compare the change with the maintenance log."
-      ]
+      "evidence": "File integrity monitoring detected a change to a protected configuration file."
     },
     {
       "id": "ALT-006",
+      "reviewStatus": "done",
+      "ruleLevel": 14,
+      "review": {
+        "attack_type": "Suspicious privileged process",
+        "severity": "Critical",
+        "headline": "Suspicious privileged process",
+        "what_happened": "A new process requested elevated permissions outside the maintenance window.",
+        "why_it_matters": "Unexpected elevated processes may put financial records at risk.",
+        "steps": [
+          "Verify the process owner and purpose.",
+          "Escalate to your administrator if the activity is not approved."
+        ],
+        "when_to_escalate": "Ask your administrator to investigate if the activity cannot be explained or an account may be compromised.",
+        "model": "Demo example — no model called"
+      },
       "time": "07:58",
       "date": "2026-11-05",
       "title": "Suspicious privileged process",
@@ -135,15 +180,25 @@
       "source": "Wazuh",
       "rule": "100202",
       "sourceIp": "192.0.2.10",
-      "evidence": "A new process requested elevated permissions outside the maintenance window.",
-      "explanation": "Unexpected elevated processes may put financial records at risk.",
-      "steps": [
-        "Verify the process owner and purpose.",
-        "Escalate to your administrator if the activity is not approved."
-      ]
+      "evidence": "A new process requested elevated permissions outside the maintenance window."
     },
     {
       "id": "ALT-007",
+      "reviewStatus": "done",
+      "ruleLevel": 7,
+      "review": {
+        "attack_type": "Network discovery activity",
+        "severity": "Medium",
+        "headline": "Network discovery activity",
+        "what_happened": "One device attempted connections to several internal ports.",
+        "why_it_matters": "Discovery traffic may be an approved scan or an unexpected device exploring the network.",
+        "steps": [
+          "Check whether a scan was scheduled.",
+          "Identify the device before deciding on a response."
+        ],
+        "when_to_escalate": "Ask your administrator to investigate if the activity cannot be explained or an account may be compromised.",
+        "model": "Demo example — no model called"
+      },
       "time": "07:34",
       "date": "2026-11-05",
       "title": "Network discovery activity",
@@ -153,15 +208,24 @@
       "source": "Suricata",
       "rule": "2000537",
       "sourceIp": "192.0.2.60",
-      "evidence": "One device attempted connections to several internal ports.",
-      "explanation": "Discovery traffic may be an approved scan or an unexpected device exploring the network.",
-      "steps": [
-        "Check whether a scan was scheduled.",
-        "Identify the device before deciding on a response."
-      ]
+      "evidence": "One device attempted connections to several internal ports."
     },
     {
       "id": "ALT-008",
+      "reviewStatus": "done",
+      "ruleLevel": 3,
+      "review": {
+        "attack_type": "Software update verified",
+        "severity": "Low",
+        "headline": "Software update verified",
+        "what_happened": "An application change matched an approved software update.",
+        "why_it_matters": "The administrator verified this change as expected activity.",
+        "steps": [
+          "Keep the update record with the incident notes."
+        ],
+        "when_to_escalate": "Ask your administrator to investigate if the activity cannot be explained or an account may be compromised.",
+        "model": "Demo example — no model called"
+      },
       "time": "07:10",
       "date": "2026-11-05",
       "title": "Software update verified",
@@ -171,9 +235,7 @@
       "source": "Wazuh",
       "rule": "100203",
       "sourceIp": "192.0.2.40",
-      "evidence": "An application change matched an approved software update.",
-      "explanation": "The administrator verified this change as expected activity.",
-      "steps": ["Keep the update record with the incident notes."]
+      "evidence": "An application change matched an approved software update."
     }
   ],
   "findings": [

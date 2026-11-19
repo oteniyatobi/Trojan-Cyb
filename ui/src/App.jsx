@@ -46,10 +46,13 @@ function mapAlert(row) {
     status,
     source: 'Wazuh',
     rule: payload.rule_id ?? payload.event_id ?? row.source_event_id ?? '—',
+    ruleLevel: payload.rule_level ?? null,
     sourceIp: payload.src_ip ?? '—',
     evidence: payload.description ?? row.title,
     explanation: review.what_happened ?? review.explanation ?? 'No AI review is available.',
     steps: Array.isArray(review.steps) ? review.steps : [],
+    review: review.status === 'done' ? review : null,
+    reviewStatus: review.status === 'done' ? 'done' : 'unavailable',
   }
 }
 
