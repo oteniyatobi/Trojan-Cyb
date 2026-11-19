@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Sidebar from './components/Sidebar.jsx'
 import Header from './components/Header.jsx'
 import Overview from './pages/Overview.jsx'
@@ -10,6 +10,7 @@ import Health from './pages/Health.jsx'
 import Settings from './pages/Settings.jsx'
 import Login from './pages/Login.jsx'
 import Demo from './pages/Demo.jsx'
+import TrojanAdmin from './pages/TrojanAdmin.jsx'
 import { supabase, supabaseConfigured } from './lib/supabase.js'
 import { fetchAlerts, fetchFindings, fetchHealth } from './lib/api.js'
 
@@ -20,6 +21,7 @@ const pages = {
   scans: 'Scans',
   health: 'Health',
   settings: 'Settings',
+  organizations: 'Organizations',
 }
 
 function titleCase(value) {
@@ -175,7 +177,9 @@ function App() {
   }
 
   const [page, alertId] = route.slice(1).split('/')
-  const activePage = Object.hasOwn(pages, page) ? pages[page] : null
+  const activePage = Object.hasOwn(pages, page) && (page !== 'organizations' || isPlatformAdmin)
+    ? pages[page]
+    : null
   const visibleWorkspaceError = workspaceError?.userId === userId
     ? workspaceError.message
     : ''
@@ -405,6 +409,11 @@ function App() {
     }
   }, [page, userId])
 
+  const getToken = useCallback(async () => {
+    const { data } = await supabase.auth.getSession()
+    return data.session?.access_token
+  }, [])
+
   function navigate(destination) {
     window.location.hash = `/${destination.toLowerCase()}`
     if (window.innerWidth <= 700) setCollapsed(true)
@@ -558,7 +567,7 @@ function App() {
         onSignOut={handleSignOut}
       />
       <div className={`app-body${collapsed ? ' sidebar-collapsed' : ''}`}>
-        <Sidebar activePage={activePage} onNavigate={navigate} />
+        <Sidebar activePage={activePage} onNavigate={navigate} isAdmin={isPlatformAdmin} />
         <main className="main-content" id="main-content" tabIndex={-1}>
           <div className="page-heading">
             <h1>{pageNotFound ? 'Page not found' : selectedAlert ? 'Alert Detail' : activePage}</h1>
@@ -617,6 +626,7 @@ function App() {
                   />
                 )
               )}
+              {activePage === 'Organizations' && <TrojanAdmin getToken={getToken} />}
               {activePage === 'Findings' && <Findings findings={mappedFindings} />}
               {activePage === 'Scans' && <Scans scans={scans} onAddScan={addScan} />}
               {activePage === 'Health' && (
