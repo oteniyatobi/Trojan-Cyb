@@ -5,7 +5,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
 
   dashboard:
     build:
@@ -14,4 +14,4 @@ services:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?Set VITE_SUPABASE_URL in the root .env}
         VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?Set VITE_SUPABASE_PUBLISHABLE_KEY in the root .env}
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
