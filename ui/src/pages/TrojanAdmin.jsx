@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Badge from '../components/Badge.jsx'
 import { admin } from '../lib/api.js'
+import ConnectWazuh from './ConnectWazuh.jsx'
 
 const roles = { org_admin: 'Admin', analyst: 'Analyst', viewer: 'Viewer' }
 
@@ -19,8 +20,8 @@ function NewKey({ created, onDone }) {
   return (
     <div className="key-reveal" role="status">
       <p>
-        <strong>Copy this key now.</strong> It won’t be shown again. Put it in the Wazuh
-        messenger as <code>TROJAN_INGESTION_API_KEY</code>.
+        <strong>Copy this key now.</strong> It won’t be shown again. It goes in the
+        <code>&lt;api_key&gt;</code> line of the Wazuh config below.
       </p>
       <code className="key-value">{created.key}</code>
       <div className="key-actions">
@@ -29,6 +30,8 @@ function NewKey({ created, onDone }) {
         </button>
         <button type="button" className="text-button" onClick={onDone}>Done</button>
       </div>
+      <h4>Connect Wazuh</h4>
+      <ConnectWazuh apiKey={created.key} />
     </div>
   )
 }
@@ -103,6 +106,7 @@ function OrganizationPanel({ organization, run, busy }) {
               <tr>
                 <th>Label</th>
                 <th>Created</th>
+                <th>Last used</th>
                 <th>Status</th>
                 <th><span className="sr-only">Actions</span></th>
               </tr>
@@ -112,6 +116,7 @@ function OrganizationPanel({ organization, run, busy }) {
                 <tr key={key.id}>
                   <td>{key.label || 'Unlabelled'}</td>
                   <td>{new Date(key.created_at).toLocaleString()}</td>
+                  <td>{key.last_used_at ? new Date(key.last_used_at).toLocaleString() : 'Never'}</td>
                   <td><Badge>{key.revoked_at ? 'Revoked' : 'Active'}</Badge></td>
                   <td>
                     {!key.revoked_at && (
@@ -134,7 +139,14 @@ function OrganizationPanel({ organization, run, busy }) {
       {created ? (
         <NewKey created={created} onDone={() => setCreated(null)} />
       ) : (
-        <form className="inline-form" onSubmit={createKey}>
+        <>
+          {activeKeys.length > 0 && (
+            <details className="setup-details">
+              <summary>How to connect Wazuh</summary>
+              <ConnectWazuh />
+            </details>
+          )}
+          <form className="inline-form" onSubmit={createKey}>
           <label>
             Key label
             <input
@@ -145,7 +157,8 @@ function OrganizationPanel({ organization, run, busy }) {
             />
           </label>
           <button className="primary-button" disabled={busy} type="submit">Create key</button>
-        </form>
+          </form>
+        </>
       )}
     </section>
   )

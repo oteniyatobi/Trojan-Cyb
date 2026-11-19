@@ -3,7 +3,7 @@
 
 Wazuh calls this as: custom-trojan <alert_file> <api_key> <hook_url>
 The URL comes from <hook_url> in ossec.conf and defaults to the backend
-service name on the shared Docker network.
+service name on the shared Docker network. Failed sends are logged, not retried.
 """
 import json
 import sys
@@ -39,8 +39,11 @@ def main():
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             log(f"rule {rule_id} -> {url} HTTP {resp.status}")
+    except urllib.error.HTTPError as e:
+        log(f"rule {rule_id} -> {url} HTTP {e.code}")
+        return 1
     except urllib.error.URLError as e:
-        log(f"rule {rule_id} -> {url} FAILED: {e}")
+        log(f"rule {rule_id} -> {url} FAILED: {e.reason}")
         return 1
     return 0
 

@@ -182,8 +182,9 @@ that this is a laptop in WSL, not the target server.
 
 ## Not covered or unconfirmed
 
-- The Wazuh manager is not yet configured to invoke `backend/messenger.py`
-  automatically. A container must use a reachable backend host address;
-  `127.0.0.1` inside a container is the container itself.
+- Sending alerts to TROJAN: install `integrations/custom-trojan` in the
+  manager container as shown on the admin site. A container must use a
+  reachable backend address; `127.0.0.1` inside a container is the container
+  itself.
 - The Groq review step and the dashboard.
 - Running this on a machine other than the author's.

@@ -6,3 +6,5 @@ export function isAdminSite() {
     || hostname.startsWith('admin.')
     || new URLSearchParams(search).has('admin')
 }
+
+export const appUrl = import.meta.env.VITE_APP_URL || 'https://trojan-cyb.vercel.app'
