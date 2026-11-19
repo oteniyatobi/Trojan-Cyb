@@ -20,6 +20,67 @@ def get_supabase_client() -> Client:
     return create_client(url, service_key)
 
 
+def get_user_client(access_token: str) -> Client:
+    url = os.getenv("SUPABASE_URL")
+    publishable_key = os.getenv("SUPABASE_PUBLISHABLE_KEY") or os.getenv(
+        "VITE_SUPABASE_PUBLISHABLE_KEY"
+    )
+    if not url or not publishable_key:
+        raise SupabaseConfigurationError(
+            "SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be configured on the backend"
+        )
+    client = create_client(url, publishable_key)
+    client.postgrest.auth(access_token)
+    return client
+
+
+ALERT_COLUMNS = (
+    "id, organization_id, source_event_id, title, severity, status, "
+    "source_payload, ai_review, created_at"
+)
+FINDING_COLUMNS = (
+    "id, organization_id, asset, title, cve_id, severity, status, details, created_at"
+)
+
+
+def list_alerts(access_token: str, organization_id: str, limit: int) -> list[dict]:
+    response = (
+        get_user_client(access_token)
+        .table("alerts")
+        .select(ALERT_COLUMNS)
+        .eq("organization_id", organization_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return response.data or []
+
+
+def get_alert(access_token: str, alert_id: str) -> dict | None:
+    response = (
+        get_user_client(access_token)
+        .table("alerts")
+        .select(ALERT_COLUMNS)
+        .eq("id", alert_id)
+        .limit(1)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
+def list_findings(access_token: str, organization_id: str, limit: int) -> list[dict]:
+    response = (
+        get_user_client(access_token)
+        .table("vulnerability_findings")
+        .select(FINDING_COLUMNS)
+        .eq("organization_id", organization_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return response.data or []
+
+
 def get_organization_id() -> str:
     organization_id = os.getenv("TROJAN_ORGANIZATION_ID")
     if not organization_id:

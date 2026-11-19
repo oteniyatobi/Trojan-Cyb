@@ -135,6 +135,7 @@ function Login({ theme, onToggleTheme, onLogin, error }) {
               ? 'New organization? Create an account'
               : 'Already registered? Sign in'}
           </button>
+          <a className="text-button" href="#/demo/overview">View the demo workspace</a>
         </div>
       </section>
       <section className="login-brand-panel">
