@@ -1718,3 +1718,14 @@ input[type='checkbox'] {
   display: flex;
   gap: var(--space-4);
 }
+
+.admin-user {
+  font-size: 0.875rem;
+  color: var(--color-text-muted, inherit);
+}
+
+@media (max-width: 700px) {
+  .admin-user {
+    display: none;
+  }
+}

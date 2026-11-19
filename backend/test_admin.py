@@ -82,7 +82,44 @@ class AdminEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class PlatformEndpointTests(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    @patch("api.admin_store.platform_admin_id", return_value=None)
+    def test_overview_requires_platform_admin(self, _admin):
+        self.assertEqual(self.client.get("/v1/admin/overview", headers=HEADERS).status_code, 403)
+
+    @patch("api.admin_store.overview", return_value={"organizations": 2})
+    @patch("api.admin_store.platform_admin_id", return_value=ADMIN)
+    def test_overview(self, _admin, _overview):
+        response = self.client.get("/v1/admin/overview", headers=HEADERS)
+
+        self.assertEqual(response.json["organizations"], 2)
+
+    @patch("api.admin_store.add_platform_admin", return_value={"user_id": USER})
+    @patch("api.admin_store.platform_admin_id", return_value=ADMIN)
+    def test_adds_platform_admin(self, _admin, add):
+        response = self.client.post("/v1/admin/platform-admins", json={"email": "a@b.test"}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 201)
+        add.assert_called_once_with(ADMIN, "a@b.test")
+
+    @patch("api.admin_store.audit_log", return_value=[])
+    @patch("api.admin_store.platform_admin_id", return_value=ADMIN)
+    def test_audit_limit_is_capped(self, _admin, audit):
+        self.client.get("/v1/admin/audit?limit=999999", headers=HEADERS)
+
+        audit.assert_called_once_with(1000)
+
+
 class AdminStoreTests(unittest.TestCase):
+    def test_cannot_remove_self(self):
+        with self.assertRaises(admin_store.AdminError) as raised:
+            admin_store.remove_platform_admin(ADMIN, ADMIN)
+        self.assertEqual(raised.exception.status, 409)
+
     @patch("admin_store.get_supabase_client")
     def test_key_is_stored_as_hash_only(self, get_client):
         client = MagicMock()

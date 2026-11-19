@@ -51,4 +51,15 @@ export const admin = {
     { method: 'POST', body: { label } },
   ),
   revokeKey: (token, keyId) => request(`/admin/keys/${keyId}/revoke`, token, { method: 'POST' }),
+  overview: (token) => request('/admin/overview', token),
+  users: (token) => request('/admin/users', token),
+  platformAdmins: (token) => request('/admin/platform-admins', token),
+  addPlatformAdmin: (token, email) => request('/admin/platform-admins', token, {
+    method: 'POST',
+    body: { email },
+  }),
+  removePlatformAdmin: (token, userId) => request(`/admin/platform-admins/${userId}`, token, {
+    method: 'DELETE',
+  }),
+  audit: (token) => request('/admin/audit?limit=200', token),
 }

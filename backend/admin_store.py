@@ -161,3 +161,122 @@ def revoke_ingest_key(actor_id: str, key_id: str) -> None:
     if not response.data:
         raise AdminError("Key not found or already revoked", 404)
     _audit(actor_id, response.data[0]["organization_id"], "ingest_key.revoked", "ingest_key", key_id)
+
+
+def overview() -> dict:
+    client = get_supabase_client()
+
+    def count(table, **filters):
+        query = client.table(table).select("id", count="exact", head=True)
+        for column, value in filters.items():
+            query = query.eq(column, value)
+        return query.execute().count or 0
+
+    organizations = client.table("organizations").select("id, name").order("name").execute().data
+    latest = []
+    for organization in organizations:
+        rows = (
+            client.table("alerts")
+            .select("title, severity, created_at")
+            .eq("organization_id", organization["id"])
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        latest.append({
+            "organization_id": organization["id"],
+            "organization": organization["name"],
+            "alerts": count("alerts", organization_id=organization["id"]),
+            "latest_alert": rows[0] if rows else None,
+        })
+    active_keys = (
+        client.table("ingest_keys").select("id", count="exact", head=True)
+        .is_("revoked_at", "null").execute().count or 0
+    )
+    return {
+        "organizations": len(organizations),
+        "users": len(_users_by_id()),
+        "alerts": count("alerts"),
+        "open_critical_alerts": count("alerts", severity="critical", status="open"),
+        "active_keys": active_keys,
+        "by_organization": latest,
+    }
+
+
+def list_users() -> list[dict]:
+    client = get_supabase_client()
+    names = {row["id"]: row["name"] for row in client.table("organizations").select("id, name").execute().data}
+    admins = {row["user_id"] for row in client.table("platform_admins").select("user_id").execute().data}
+    memberships = {}
+    for row in client.table("organization_memberships").select("organization_id, user_id, role").execute().data:
+        memberships.setdefault(row["user_id"], []).append({
+            "organization_id": row["organization_id"],
+            "organization": names.get(row["organization_id"], "Unknown"),
+            "role": row["role"],
+        })
+    users = []
+    for user in _users_by_id().values():
+        users.append({
+            "id": user.id,
+            "email": user.email,
+            "created_at": str(user.created_at) if user.created_at else None,
+            "last_sign_in_at": str(user.last_sign_in_at) if user.last_sign_in_at else None,
+            "platform_admin": user.id in admins,
+            "organizations": memberships.get(user.id, []),
+        })
+    return sorted(users, key=lambda user: (user["email"] or "").lower())
+
+
+def list_platform_admins() -> list[dict]:
+    rows = get_supabase_client().table("platform_admins").select("user_id, added_at, added_by").execute().data
+    users = _users_by_id()
+
+    def email(user_id):
+        user = users.get(user_id)
+        return user.email if user else None
+
+    return [
+        {**row, "email": email(row["user_id"]), "added_by_email": email(row["added_by"])}
+        for row in rows
+    ]
+
+
+def add_platform_admin(actor_id: str, email: str) -> dict:
+    user_id = _user_id_for_email(email)
+    if not user_id:
+        raise AdminError("No TROJAN account uses that email. Ask them to sign up first.", 404)
+    client = get_supabase_client()
+    if client.table("platform_admins").select("user_id").eq("user_id", user_id).execute().data:
+        raise AdminError("That account is already a TROJAN admin", 409)
+    client.table("platform_admins").insert({"user_id": user_id, "added_by": actor_id}).execute()
+    _audit(actor_id, None, "platform_admin.added", "user", user_id, {"email": email.strip().lower()})
+    return {"user_id": user_id}
+
+
+def remove_platform_admin(actor_id: str, user_id: str) -> None:
+    if user_id == actor_id:
+        raise AdminError("You can't remove your own admin access", 409)
+    response = get_supabase_client().table("platform_admins").delete().eq("user_id", user_id).execute()
+    if not response.data:
+        raise AdminError("That account is not a TROJAN admin", 404)
+    _audit(actor_id, None, "platform_admin.removed", "user", user_id)
+
+
+def audit_log(limit: int) -> list[dict]:
+    client = get_supabase_client()
+    rows = (
+        client.table("audit_logs")
+        .select("id, organization_id, actor_id, action, entity_type, entity_id, details, created_at")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+    )
+    names = {row["id"]: row["name"] for row in client.table("organizations").select("id, name").execute().data}
+    users = _users_by_id()
+    for row in rows:
+        actor = users.get(row["actor_id"])
+        row["actor_email"] = actor.email if actor else None
+        row["organization"] = names.get(row["organization_id"])
+    return rows

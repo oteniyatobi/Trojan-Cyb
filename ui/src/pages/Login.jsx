@@ -4,7 +4,7 @@ import trojanLogoWhite from '../assets/trojan-logo-white.png'
 import ThemeToggle from '../components/ThemeToggle.jsx'
 import { supabase } from '../lib/supabase.js'
 
-function Login({ theme, onToggleTheme, onLogin, error }) {
+function Login({ theme, onToggleTheme, onLogin, error, adminMode = false }) {
   const [mode, setMode] = useState('sign-in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -66,9 +66,13 @@ function Login({ theme, onToggleTheme, onLogin, error }) {
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>
         <div className="login-content">
-          <h1>{mode === 'sign-in' ? 'Welcome Back' : 'Create your organization'}</h1>
+          <h1>
+            {adminMode ? 'TROJAN Admin' : mode === 'sign-in' ? 'Welcome Back' : 'Create your organization'}
+          </h1>
           <p>
-            {mode === 'sign-in'
+            {adminMode
+              ? 'Sign in with your TROJAN platform admin account.'
+              : mode === 'sign-in'
               ? 'Sign in to your organization’s security workspace.'
               : 'Create an account. Your organization and admin access will be set up automatically.'}
           </p>
@@ -122,7 +126,7 @@ function Login({ theme, onToggleTheme, onLogin, error }) {
                 : (mode === 'sign-in' ? 'Sign In' : 'Create account')}
             </button>
           </form>
-          <button
+          {!adminMode && <button
             className="text-button"
             type="button"
             onClick={() => {
@@ -134,8 +138,8 @@ function Login({ theme, onToggleTheme, onLogin, error }) {
             {mode === 'sign-in'
               ? 'New organization? Create an account'
               : 'Already registered? Sign in'}
-          </button>
-          <a className="text-button" href="#/demo/overview">View the demo workspace</a>
+          </button>}
+          {!adminMode && <a className="text-button" href="#/demo/overview">View the demo workspace</a>}
         </div>
       </section>
       <section className="login-brand-panel">
