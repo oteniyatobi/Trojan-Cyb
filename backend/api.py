@@ -5,6 +5,7 @@ import uuid
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
+import admin_store
 from groq_review import check_review, get_review
 from supabase_store import (
     SupabaseConfigurationError,
@@ -154,6 +155,81 @@ def review_stored_alert(organization_id, alert_id, alert):
         review, review_status = review_alert(alert)
     record_review(organization_id, alert_id, review, review_status)
     return review, review_status
+
+
+def admin_action(action):
+    token = user_token()
+    if not token:
+        return jsonify({"error": "Sign in required"}), 401
+    try:
+        actor_id = admin_store.platform_admin_id(token)
+        if not actor_id:
+            return jsonify({"error": "TROJAN platform admin access required"}), 403
+        return action(actor_id)
+    except admin_store.AdminError as error:
+        return jsonify({"error": str(error)}), error.status
+    except SupabaseConfigurationError as error:
+        return jsonify({"error": str(error)}), 503
+    except Exception:
+        app.logger.exception("Admin request failed")
+        return jsonify({"error": "Admin request failed"}), 502
+
+
+def json_body():
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else {}
+
+
+@app.route("/v1/admin/organizations", methods=["GET"])
+def admin_organizations():
+    return admin_action(lambda _actor: (
+        jsonify({"organizations": admin_store.list_organizations()}), 200
+    ))
+
+
+@app.route("/v1/admin/organizations", methods=["POST"])
+def admin_create_organization():
+    body = json_body()
+    return admin_action(lambda actor: (
+        jsonify(admin_store.create_organization(
+            actor, str(body.get("name", "")), str(body.get("admin_email", "")),
+        )),
+        201,
+    ))
+
+
+@app.route("/v1/admin/organizations/<organization_id>/members/<user_id>", methods=["PATCH"])
+def admin_set_role(organization_id, user_id):
+    if not valid_uuid(organization_id) or not valid_uuid(user_id):
+        return jsonify({"error": "Member not found"}), 404
+    body = json_body()
+
+    def action(actor):
+        admin_store.set_member_role(actor, organization_id, user_id, str(body.get("role", "")))
+        return jsonify({"role": body.get("role")}), 200
+    return admin_action(action)
+
+
+@app.route("/v1/admin/organizations/<organization_id>/keys", methods=["POST"])
+def admin_create_key(organization_id):
+    if not valid_uuid(organization_id):
+        return jsonify({"error": "Organization not found"}), 404
+    body = json_body()
+    return admin_action(lambda actor: (
+        jsonify(admin_store.create_ingest_key(actor, organization_id, str(body.get("label", "")))),
+        201,
+    ))
+
+
+@app.route("/v1/admin/keys/<key_id>/revoke", methods=["POST"])
+def admin_revoke_key(key_id):
+    if not valid_uuid(key_id):
+        return jsonify({"error": "Key not found"}), 404
+
+    def action(actor):
+        admin_store.revoke_ingest_key(actor, key_id)
+        return jsonify({"revoked": True}), 200
+    return admin_action(action)
 
 
 @app.route("/v1/health", methods=["GET"])
