@@ -232,6 +232,49 @@ def admin_revoke_key(key_id):
     return admin_action(action)
 
 
+@app.route("/v1/admin/overview", methods=["GET"])
+def admin_overview():
+    return admin_action(lambda _actor: (jsonify(admin_store.overview()), 200))
+
+
+@app.route("/v1/admin/users", methods=["GET"])
+def admin_users():
+    return admin_action(lambda _actor: (jsonify({"users": admin_store.list_users()}), 200))
+
+
+@app.route("/v1/admin/platform-admins", methods=["GET"])
+def admin_platform_admins():
+    return admin_action(lambda _actor: (
+        jsonify({"admins": admin_store.list_platform_admins()}), 200
+    ))
+
+
+@app.route("/v1/admin/platform-admins", methods=["POST"])
+def admin_add_platform_admin():
+    body = json_body()
+    return admin_action(lambda actor: (
+        jsonify(admin_store.add_platform_admin(actor, str(body.get("email", "")))), 201
+    ))
+
+
+@app.route("/v1/admin/platform-admins/<user_id>", methods=["DELETE"])
+def admin_remove_platform_admin(user_id):
+    if not valid_uuid(user_id):
+        return jsonify({"error": "That account is not a TROJAN admin"}), 404
+
+    def action(actor):
+        admin_store.remove_platform_admin(actor, user_id)
+        return jsonify({"removed": True}), 200
+    return admin_action(action)
+
+
+@app.route("/v1/admin/audit", methods=["GET"])
+def admin_audit():
+    return admin_action(lambda _actor: (
+        jsonify({"entries": admin_store.audit_log(read_limit())}), 200
+    ))
+
+
 @app.route("/v1/health", methods=["GET"])
 def health():
     return jsonify({

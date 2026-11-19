@@ -13,6 +13,7 @@ import Demo from './pages/Demo.jsx'
 import TrojanAdmin from './pages/TrojanAdmin.jsx'
 import { supabase, supabaseConfigured } from './lib/supabase.js'
 import { fetchAlerts, fetchFindings, fetchHealth } from './lib/api.js'
+import { adminUrl } from './lib/site.js'
 
 const pages = {
   overview: 'Overview',
@@ -408,6 +409,17 @@ function App() {
       active = false
     }
   }, [page, userId])
+
+  useEffect(() => {
+    if (!workspaceReady || !isPlatformAdmin) return
+    try {
+      if (sessionStorage.getItem('trojan-admin-redirected') === userId) return
+      sessionStorage.setItem('trojan-admin-redirected', userId)
+    } catch {
+      return
+    }
+    window.location.assign(adminUrl)
+  }, [workspaceReady, isPlatformAdmin, userId])
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
