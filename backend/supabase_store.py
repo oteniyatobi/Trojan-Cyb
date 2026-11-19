@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -103,21 +104,35 @@ def organization_for_ingest_key(raw_key: str):
     """Business that owns an ingest key, or None.
 
     Only the SHA-256 hash is stored in ingest_keys, and revoked keys don't
-    match.
+    match. Each use is recorded in last_used_at, at most every 5 minutes.
     """
     if not raw_key:
         return None
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    client = get_supabase_client()
     response = (
-        get_supabase_client()
-        .table("ingest_keys")
-        .select("organization_id")
+        client.table("ingest_keys")
+        .select("id, organization_id, revoked_at, last_used_at")
         .eq("key_hash", key_hash)
-        .is_("revoked_at", "null")
         .limit(1)
         .execute()
     )
-    return response.data[0]["organization_id"] if response.data else None
+    if not response.data:
+        return None
+    key = response.data[0]
+    _record_key_use(client, key)
+    return None if key["revoked_at"] else key["organization_id"]
+
+
+def _record_key_use(client, key):
+    now = datetime.now(timezone.utc)
+    last_used = key.get("last_used_at")
+    if last_used and now - datetime.fromisoformat(last_used) < timedelta(minutes=5):
+        return
+    try:
+        client.table("ingest_keys").update({"last_used_at": now.isoformat()}).eq("id", key["id"]).execute()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not record ingest key use")
 
 
 def _obj(value):

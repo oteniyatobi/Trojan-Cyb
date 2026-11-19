@@ -63,7 +63,7 @@ def list_organizations() -> list[dict]:
         for row in client.table("profiles").select("id, display_name").execute().data
     }
     keys = client.table("ingest_keys").select(
-        "id, organization_id, label, created_at, revoked_at"
+        "id, organization_id, label, created_at, revoked_at, last_used_at"
     ).order("created_at", desc=True).execute().data
     alert_counts = {
         organization["id"]: client.table("alerts").select("id", count="exact", head=True)

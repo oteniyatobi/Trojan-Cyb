@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timezone
 import os
 import unittest
 from types import SimpleNamespace
@@ -256,17 +257,46 @@ class SupabaseStoreTests(unittest.TestCase):
         self.assertEqual(update["title"], "Test alert review")
         self.assertIn("reviewed_at", update)
 
-    @patch("supabase_store.get_supabase_client")
-    def test_ingest_key_lookup_uses_hash(self, get_client):
+    def _key_client(self, row):
         client = MagicMock()
         query = client.table.return_value.select.return_value
-        query.eq.return_value.is_.return_value.limit.return_value.execute.return_value = SimpleNamespace(
-            data=[{"organization_id": OTHER_ORG}],
+        query.eq.return_value.limit.return_value.execute.return_value = SimpleNamespace(
+            data=[row] if row else [],
         )
+        return client, query
+
+    @patch("supabase_store.get_supabase_client")
+    def test_ingest_key_lookup_uses_hash(self, get_client):
+        client, query = self._key_client({
+            "id": "k1", "organization_id": OTHER_ORG, "revoked_at": None, "last_used_at": None,
+        })
         get_client.return_value = client
 
         self.assertEqual(supabase_store.organization_for_ingest_key("org-key"), OTHER_ORG)
         query.eq.assert_called_once_with("key_hash", hashlib.sha256(b"org-key").hexdigest())
+        client.table.return_value.update.assert_called_once()
+
+    @patch("supabase_store.get_supabase_client")
+    def test_revoked_key_is_rejected_but_recorded(self, get_client):
+        client, _ = self._key_client({
+            "id": "k1", "organization_id": OTHER_ORG, "revoked_at": "2026-11-19T10:00:00+00:00",
+            "last_used_at": None,
+        })
+        get_client.return_value = client
+
+        self.assertIsNone(supabase_store.organization_for_ingest_key("org-key"))
+        client.table.return_value.update.assert_called_once()
+
+    @patch("supabase_store.get_supabase_client")
+    def test_recent_use_is_not_rewritten(self, get_client):
+        recent = datetime.now(timezone.utc).isoformat()
+        client, _ = self._key_client({
+            "id": "k1", "organization_id": OTHER_ORG, "revoked_at": None, "last_used_at": recent,
+        })
+        get_client.return_value = client
+
+        supabase_store.organization_for_ingest_key("org-key")
+        client.table.return_value.update.assert_not_called()
 
     @patch("supabase_store.get_supabase_client")
     def test_findings_storage_sets_organization(self, get_client):

@@ -62,7 +62,7 @@ Import this GitHub repository into Vercel with the repository root (`./`) select
 - `GROQ_MAX_RETRIES` (optional; defaults to `3`)
 - `GROQ_REVIEWS_PER_HOUR` (optional; defaults to `100` per business)
 
-The Wazuh messenger must use the deployed project URL as `TROJAN_API_URL`. Its API key must be `TROJAN_INGESTION_API_KEY` or a business key registered in `ingest_keys` (see the [backend guide](backend/README.md)). Scanner scripts that require installed Nmap or Wapiti executables still need an environment that provides those binaries; they are not run by this Vercel deployment.
+Each business's Wazuh manager sends alerts with the `integrations/custom-trojan` integration. Create a key for the organization on the TROJAN admin site; it then shows the install commands and the `ossec.conf` block with the key and URL filled in. The site serves the script at `/integrations/custom-trojan`. Scanner scripts that require installed Nmap or Wapiti executables still need an environment that provides those binaries; they are not run by this Vercel deployment.
 
 The first-user sign-up flow creates an organization in the shared Supabase project; downloading the application alone does not create one because a user must provide its name. The backend works out the organization from the ingest key: `TROJAN_INGESTION_API_KEY` maps to `TROJAN_ORGANIZATION_ID`, and each other business has its own key, stored only as a SHA-256 hash in `ingest_keys`. Callers cannot select an organization, and unknown or revoked keys get 401.
 
