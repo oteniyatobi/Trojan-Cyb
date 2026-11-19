@@ -45,7 +45,7 @@ def run_nmap_scan(target: str) -> list:
                     "title": f"Open Port: {port_id}/{protocol}",
                     "description": f"Service '{service}' is listening on port {port_id}/{protocol}.",
                     "evidence": evidence,
-                    "raw_output_ref": None,  # nmap runs with -oX - to stdout; no file to point at
+                    "raw_output_ref": None,
                     "cve_id": None,
                     "found_at": datetime.utcnow().isoformat() + "Z",
                 })

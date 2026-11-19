@@ -1,11 +1,19 @@
 import hmac
 import json
 import os
+import uuid
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from groq_review import check_review, get_review
-from supabase_store import persist_alert, persist_findings
+from supabase_store import (
+    SupabaseConfigurationError,
+    get_alert,
+    list_alerts,
+    list_findings,
+    persist_alert,
+    persist_findings,
+)
 
 load_dotenv()
 
@@ -26,6 +34,75 @@ def ingestion_auth_error():
     ):
         return jsonify({"error": "Unauthorized"}), 401
     return None
+
+
+def user_token():
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return None
+    return authorization.removeprefix("Bearer ").strip() or None
+
+
+def valid_uuid(value):
+    try:
+        return str(uuid.UUID(str(value)))
+    except ValueError:
+        return None
+
+
+def read_limit():
+    try:
+        return max(1, min(int(request.args.get("limit", 200)), MAX_ALERTS))
+    except ValueError:
+        return 200
+
+
+def read_rows(loader, *args):
+    token = user_token()
+    if not token:
+        return jsonify({"error": "Sign in required"}), 401
+    try:
+        return loader(token, *args)
+    except SupabaseConfigurationError as error:
+        return jsonify({"error": str(error)}), 503
+    except Exception:
+        app.logger.exception("Supabase read failed")
+        return jsonify({"error": "Could not read from Supabase"}), 502
+
+
+@app.route("/v1/alerts", methods=["GET"])
+def alerts_list():
+    organization_id = valid_uuid(request.args.get("organization_id", ""))
+    if not organization_id:
+        return jsonify({"error": "A valid organization_id is required"}), 422
+    rows = read_rows(list_alerts, organization_id, read_limit())
+    if isinstance(rows, tuple):
+        return rows
+    return jsonify({"alerts": rows}), 200
+
+
+@app.route("/v1/alerts/<alert_id>", methods=["GET"])
+def alert_detail(alert_id):
+    alert_id = valid_uuid(alert_id)
+    if not alert_id:
+        return jsonify({"error": "Alert not found"}), 404
+    row = read_rows(get_alert, alert_id)
+    if isinstance(row, tuple):
+        return row
+    if row is None:
+        return jsonify({"error": "Alert not found"}), 404
+    return jsonify(row), 200
+
+
+@app.route("/v1/findings", methods=["GET"])
+def findings_list():
+    organization_id = valid_uuid(request.args.get("organization_id", ""))
+    if not organization_id:
+        return jsonify({"error": "A valid organization_id is required"}), 422
+    rows = read_rows(list_findings, organization_id, read_limit())
+    if isinstance(rows, tuple):
+        return rows
+    return jsonify({"findings": rows}), 200
 
 
 @app.route("/v1/health", methods=["GET"])

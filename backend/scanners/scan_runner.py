@@ -6,9 +6,6 @@ from scanners import nmap_scanner, wapiti_scanner, nuclei_scanner, osv_scanner
 
 logger = logging.getLogger(__name__)
 
-# Each entry is (function, target_kind). target_kind tells the runner
-# which argument to pass: "host" for nmap, "url" for wapiti/nuclei,
-# "dir" for osv. Adding a tool is one import above plus one line here.
 SCANNERS = {
     "nmap": (nmap_scanner.run_nmap_scan, "host"),
     "wapiti": (wapiti_scanner.run_wapiti_scan, "url"),

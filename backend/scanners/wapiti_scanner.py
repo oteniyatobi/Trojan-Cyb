@@ -46,16 +46,10 @@ MEDIUM_CATEGORIES = {
 
 COOKIE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dvwa_cookies.json")
 
-# Wapiti's default attack modules. "-m all" also enables buster, nikto,
-# brute_login_form and timesql, which brute-force thousands of paths and
-# never finished within the timeout, so no report was ever produced.
-#Ran during test with DVWA(Damn Vulnerable Web App)
+#-m all never finished on DVWA, the brute force modules time out
 MODULES = "xss,exec,redirect,ssl,file,upload,sql,ssrf,permanentxss"
 
-# Pages that must never be requested during an authenticated scan:
-# logout.php destroys the session, setup.php resets the database,
-# security.php changes the security level, and csrf/ changes the
-# admin password (Wapiti fills it with its default value "Letm3in_").
+#these pages log out, reset the db or change the admin password
 DVWA_EXCLUSIONS = ("/logout.php", "/setup.php", "/security.php", "/vulnerabilities/csrf/*")
 
 

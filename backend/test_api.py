@@ -92,6 +92,55 @@ class SupabaseIngestionTests(unittest.TestCase):
         persist.assert_called_once_with([finding])
 
 
+USER_HEADERS = {"Authorization": "Bearer user-access-token"}
+ORGANIZATION_ID = "11111111-1111-1111-1111-111111111111"
+
+
+class ReadEndpointTests(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    def test_alerts_require_sign_in(self):
+        response = self.client.get(f"/v1/alerts?organization_id={ORGANIZATION_ID}")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_alerts_require_valid_organization(self):
+        response = self.client.get("/v1/alerts?organization_id=nope", headers=USER_HEADERS)
+
+        self.assertEqual(response.status_code, 422)
+
+    @patch("api.list_alerts", return_value=[{"id": "a1"}])
+    def test_alerts_are_read_with_user_token(self, list_alerts):
+        response = self.client.get(
+            f"/v1/alerts?organization_id={ORGANIZATION_ID}&limit=5",
+            headers=USER_HEADERS,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["alerts"], [{"id": "a1"}])
+        list_alerts.assert_called_once_with("user-access-token", ORGANIZATION_ID, 5)
+
+    @patch("api.get_alert", return_value=None)
+    def test_missing_alert_returns_404(self, _get_alert):
+        response = self.client.get(
+            "/v1/alerts/22222222-2222-2222-2222-222222222222",
+            headers=USER_HEADERS,
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch("api.list_findings", side_effect=RuntimeError("down"))
+    def test_findings_read_failure_returns_502(self, _list_findings):
+        response = self.client.get(
+            f"/v1/findings?organization_id={ORGANIZATION_ID}",
+            headers=USER_HEADERS,
+        )
+
+        self.assertEqual(response.status_code, 502)
+
+
 class SupabaseStoreTests(unittest.TestCase):
     def setUp(self):
         self.environment = patch.dict(

@@ -9,7 +9,9 @@ import Scans from './pages/Scans.jsx'
 import Health from './pages/Health.jsx'
 import Settings from './pages/Settings.jsx'
 import Login from './pages/Login.jsx'
+import Demo from './pages/Demo.jsx'
 import { supabase, supabaseConfigured } from './lib/supabase.js'
+import { fetchAlerts, fetchFindings, fetchHealth } from './lib/api.js'
 
 const pages = {
   overview: 'Overview',
@@ -44,10 +46,13 @@ function mapAlert(row) {
     status,
     source: 'Wazuh',
     rule: payload.rule_id ?? payload.event_id ?? row.source_event_id ?? '—',
+    ruleLevel: payload.rule_level ?? null,
     sourceIp: payload.src_ip ?? '—',
     evidence: payload.description ?? row.title,
     explanation: review.what_happened ?? review.explanation ?? 'No AI review is available.',
     steps: Array.isArray(review.steps) ? review.steps : [],
+    review: review.status === 'done' ? review : null,
+    reviewStatus: review.status === 'done' ? 'done' : 'unavailable',
   }
 }
 
@@ -88,6 +93,29 @@ function makeActivity(alerts) {
   })
 }
 
+function mapHealth(health) {
+  return [
+    {
+      name: 'Backend API',
+      status: health.status === 'ok' ? 'Online' : 'Offline',
+      description: 'Flask service that reviews alerts and serves dashboard data.',
+      detail: '/v1/health',
+    },
+    {
+      name: 'Supabase storage',
+      status: health.supabase === 'configured' ? 'Healthy' : 'Not connected',
+      description: 'Stores alerts and findings sent by Wazuh and the scanners.',
+      detail: health.supabase === 'configured' ? 'Ingestion configured' : 'Ingestion not configured',
+    },
+    {
+      name: 'Groq AI review',
+      status: health.groq === 'set' ? 'Healthy' : 'Not connected',
+      description: 'Writes plain-language explanations for new alerts.',
+      detail: health.groq === 'set' ? 'API key set' : 'API key missing',
+    },
+  ]
+}
+
 function App() {
   const [theme, setTheme] = useState(() => {
     try {
@@ -117,6 +145,8 @@ function App() {
   const [dataError, setDataError] = useState(null)
   const [scans, setScans] = useState([])
   const [workspaceOverrides, setWorkspaceOverrides] = useState(null)
+  const [services, setServices] = useState([])
+  const [healthError, setHealthError] = useState('')
 
   const user = session?.user
   const userId = user?.id ?? ''
@@ -187,7 +217,7 @@ function App() {
     alerts: mappedAlerts,
     findings: mappedFindings,
     hosts: [],
-    services: [],
+    services,
     overview: {
       period: 'Recent activity',
       resolvedThisMonth: organizationAlerts.filter((alert) => alert.status === 'resolved').length,
@@ -241,12 +271,12 @@ function App() {
     try {
       localStorage.setItem('trojan-theme', theme)
     } catch {
-      // Theme switching still works when browser storage is unavailable.
+      return
     }
   }, [theme])
 
   useEffect(() => {
-    if (authLoading) return
+    if (authLoading || route.startsWith('/demo')) return
     if (session && route === '/login') window.location.hash = '/overview'
     if (!session && route !== '/login') window.location.hash = '/login'
   }, [authLoading, route, session])
@@ -330,25 +360,15 @@ function App() {
 
     let active = true
     async function loadOrganizationData() {
-      const [alertsResult, findingsResult] = await Promise.all([
-        supabase
-          .from('alerts')
-          .select('id, organization_id, source_event_id, title, severity, status, source_payload, ai_review, created_at')
-          .eq('organization_id', selectedOrganizationId)
-          .order('created_at', { ascending: false })
-          .limit(200),
-        supabase
-          .from('vulnerability_findings')
-          .select('id, organization_id, asset, title, cve_id, severity, status, details, created_at')
-          .eq('organization_id', selectedOrganizationId)
-          .order('created_at', { ascending: false })
-          .limit(200),
+      const { data: { session: current } } = await supabase.auth.getSession()
+      const token = current?.access_token
+      const [alertRows, findingRows] = await Promise.all([
+        fetchAlerts(token, selectedOrganizationId),
+        fetchFindings(token, selectedOrganizationId),
       ])
-      if (alertsResult.error) throw alertsResult.error
-      if (findingsResult.error) throw findingsResult.error
       if (!active) return
-      setAlerts(alertsResult.data)
-      setFindings(findingsResult.data)
+      setAlerts(alertRows)
+      setFindings(findingRows)
       setDataLoadedForOrganization(selectedOrganizationId)
       setDataLoadedForUser(userId)
       setDataError(null)
@@ -363,6 +383,27 @@ function App() {
       active = false
     }
   }, [selectedOrganizationId, userId, workspaceReady])
+
+  useEffect(() => {
+    if (page !== 'health' || !userId) return undefined
+
+    let active = true
+    fetchHealth()
+      .then((health) => {
+        if (!active) return
+        setServices(mapHealth(health))
+        setHealthError('')
+      })
+      .catch((error) => {
+        if (!active) return
+        setServices(mapHealth({}))
+        setHealthError(error.message)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [page, userId])
 
   function navigate(destination) {
     window.location.hash = `/${destination.toLowerCase()}`
@@ -411,6 +452,10 @@ function App() {
     } finally {
       setCreatingOrganization(false)
     }
+  }
+
+  if (route.startsWith('/demo')) {
+    return <Demo route={route} theme={theme} onToggleTheme={toggleTheme} />
   }
 
   if (!supabaseConfigured) {
@@ -487,7 +532,7 @@ function App() {
   const alertRouteLoading = page === 'alerts' && alertId && organizationDataLoading
   const demoNotice = {
     scans: 'Scan requests are demonstrations only; no scanner runs or contacts a target.',
-    health: 'Host and service health integrations are not connected yet.',
+    health: 'Service status is live from the backend. Host monitoring is not connected yet.',
     settings: 'Workspace preferences are local demo settings and are not saved to Supabase.',
   }[page]
 
@@ -540,6 +585,9 @@ function App() {
             </div>
           )}
           {visibleDataError && <p className="error-message" role="alert">{visibleDataError}</p>}
+          {page === 'health' && healthError && (
+            <p className="error-message" role="alert">{healthError}</p>
+          )}
           {organizationDataLoading && (
             <p className="empty-state" role="status">Loading organization data…</p>
           )}
