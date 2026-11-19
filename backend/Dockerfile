@@ -12,5 +12,4 @@ RUN useradd --create-home appuser
 USER appuser
 
 EXPOSE 8000
-# gunicorn instead of app.run(debug=True): no debugger exposed on the server
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "api:app"]

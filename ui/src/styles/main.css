@@ -594,7 +594,6 @@ p {
   }
 }
 
-/* Shared styles for the demo pages. */
 button,
 input,
 select {
@@ -1375,7 +1374,6 @@ input[type='checkbox'] {
 }
 
 
-/* Dark mode changes the same tokens used throughout the application. */
 :root[data-theme='dark'] {
   color-scheme: dark;
   --color-background: #0b1020;
@@ -1456,7 +1454,6 @@ input[type='checkbox'] {
 }
 
 
-/* Full-width header, with a simple collapsible sidebar below it. */
 .app-shell { display: block; }
 .app-body { display: grid; grid-template-columns: 231px minmax(0, 1fr); }
 .app-body.sidebar-collapsed { grid-template-columns: 72px minmax(0, 1fr); }

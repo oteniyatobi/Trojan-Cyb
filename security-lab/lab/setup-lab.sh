@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Creates a private Docker network (bridge trojan-br0) with a victim and an attacker.
 set -euo pipefail
 
 docker network inspect trojan-lab >/dev/null 2>&1 || \

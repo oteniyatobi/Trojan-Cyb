@@ -1,7 +1,4 @@
 [flake8]
-# Existing files carry known style issues (reported to their owners).
-# Each file is exempted ONLY for the codes it has today, so new files and
-# any other kind of error in these files are still caught.
 per-file-ignores =
     api.py: C901,E302,E305,W291,W293,W391
     groq_review.py: E111,E302,E305,E501,F541,W291,W292,W293
