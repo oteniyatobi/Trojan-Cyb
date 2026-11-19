@@ -5,7 +5,7 @@ import Overview from './Overview.jsx'
 import Alerts from './Alerts.jsx'
 import AlertDetail from './AlertDetail.jsx'
 import Findings from './Findings.jsx'
-import Scans from './Scans.jsx'
+import DemoScans from './DemoScans.jsx'
 import Health from './Health.jsx'
 import Settings from './Settings.jsx'
 import Admin from './Admin.jsx'
@@ -94,7 +94,7 @@ function Demo({ route, theme, onToggleTheme }) {
             <Admin organizations={organizations} onChange={setOrganizations} />
           )}
           {activePage === 'Findings' && <Findings findings={demo.findings} />}
-          {activePage === 'Scans' && <Scans scans={scans} onAddScan={addScan} />}
+          {activePage === 'Scans' && <DemoScans scans={scans} onAddScan={addScan} />}
           {activePage === 'Health' && (
             <Health services={demo.services} hosts={demo.hosts} snapshotDate={demo.snapshotDate} />
           )}

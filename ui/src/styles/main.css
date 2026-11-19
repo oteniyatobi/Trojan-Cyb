@@ -1763,3 +1763,13 @@ input[type='checkbox'] {
   cursor: pointer;
   font-weight: 600;
 }
+
+.scan-target {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.scan-target h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

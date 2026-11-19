@@ -6,6 +6,7 @@ import uuid
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request
 import admin_store
+import scan_store
 from groq_review import check_review, get_review
 from supabase_store import (
     SupabaseConfigurationError,
@@ -284,6 +285,9 @@ def health():
             os.getenv("SUPABASE_URL")
             and os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         ) else "not configured",
+        "scanning": "configured" if (
+            os.getenv("GITHUB_DISPATCH_TOKEN") and os.getenv("SCAN_WORKER_SECRET")
+        ) else "not configured",
     }), 200
 
 
@@ -396,6 +400,108 @@ def ingest_findings():
         return jsonify({"error": "Supabase storage failed"}), 503
 
     return jsonify({"stored": inserted_count}), 201
+
+
+def scan_action(action):
+    token = user_token()
+    if not token:
+        return jsonify({"error": "Sign in required"}), 401
+    try:
+        return action(token)
+    except scan_store.ScanError as error:
+        return jsonify({"error": str(error)}), error.status
+    except SupabaseConfigurationError as error:
+        return jsonify({"error": str(error)}), 503
+    except Exception:
+        app.logger.exception("Scan request failed")
+        return jsonify({"error": "Scan request failed"}), 502
+
+
+@app.route("/v1/scans", methods=["GET"])
+def scans_list():
+    organization_id = valid_uuid(request.args.get("organization_id"))
+    if not organization_id:
+        return jsonify({"error": "organization_id must be a UUID"}), 422
+    return scan_action(lambda token: (jsonify(scan_store.list_scans(token, organization_id)), 200))
+
+
+@app.route("/v1/scan-targets", methods=["POST"])
+def scan_target_add():
+    body = json_body()
+    organization_id = valid_uuid(body.get("organization_id"))
+    if not organization_id:
+        return jsonify({"error": "organization_id must be a UUID"}), 422
+    return scan_action(lambda token: (
+        jsonify(scan_store.add_target(token, organization_id, body.get("url"))), 201
+    ))
+
+
+@app.route("/v1/scan-targets/<target_id>", methods=["DELETE"])
+def scan_target_remove(target_id):
+    if not valid_uuid(target_id):
+        return jsonify({"error": "Website not found"}), 404
+
+    def remove(token):
+        scan_store.remove_target(token, target_id)
+        return jsonify({"removed": True}), 200
+    return scan_action(remove)
+
+
+@app.route("/v1/scan-targets/<target_id>/verify", methods=["POST"])
+def scan_target_verify(target_id):
+    if not valid_uuid(target_id):
+        return jsonify({"error": "Website not found"}), 404
+    return scan_action(lambda token: (jsonify(scan_store.verify_target(token, target_id)), 200))
+
+
+@app.route("/v1/scans", methods=["POST"])
+def scan_start():
+    target_id = valid_uuid(json_body().get("target_id"))
+    if not target_id:
+        return jsonify({"error": "target_id must be a UUID"}), 422
+    return scan_action(lambda token: (jsonify(scan_store.start_scan(token, target_id)), 201))
+
+
+def worker_authorized():
+    secret = os.getenv("SCAN_WORKER_SECRET")
+    supplied = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    return bool(secret) and hmac.compare_digest(supplied, secret)
+
+
+def worker_action(scan_id, action):
+    if not worker_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    if not valid_uuid(scan_id):
+        return jsonify({"error": "Scan not found"}), 404
+    try:
+        return action()
+    except scan_store.ScanError as error:
+        return jsonify({"error": str(error)}), error.status
+    except Exception:
+        app.logger.exception("Scan worker request failed")
+        return jsonify({"error": "Scan worker request failed"}), 502
+
+
+@app.route("/v1/worker/scans/<scan_id>/start", methods=["POST"])
+def worker_scan_start(scan_id):
+    return worker_action(scan_id, lambda: (jsonify(scan_store.claim_scan(scan_id)), 200))
+
+
+@app.route("/v1/worker/scans/<scan_id>/finish", methods=["POST"])
+def worker_scan_finish(scan_id):
+    body = json_body()
+    findings = body.get("findings") or []
+    if not isinstance(findings, list) or len(findings) > MAX_ALERTS:
+        return jsonify({"error": "findings must be a list"}), 422
+    if findings:
+        batch_error = findings_batch_error({"findings": findings})
+        if batch_error:
+            return batch_error
+
+    def finish():
+        stored = scan_store.complete_scan(scan_id, findings, body.get("error"), body.get("warning"))
+        return jsonify({"stored": stored}), 200
+    return worker_action(scan_id, finish)
 
 
 if __name__ == "__main__":

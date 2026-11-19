@@ -1,30 +1,8 @@
-import { useState } from 'react'
+import CodeBlock from '../components/CodeBlock.jsx'
 import { appUrl } from '../lib/site.js'
 
 const scriptUrl = `${appUrl}/integrations/custom-trojan`
 const checksum = __INTEGRATION_SHA256__
-
-function CodeBlock({ label, text }) {
-  const [copied, setCopied] = useState(false)
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  return (
-    <div className="code-block">
-      <pre aria-label={label}><code>{text}</code></pre>
-      <button type="button" className="text-button" onClick={copy}>
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-    </div>
-  )
-}
 
 function ConnectWazuh({ apiKey }) {
   const install = [

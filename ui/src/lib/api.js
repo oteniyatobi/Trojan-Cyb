@@ -63,3 +63,17 @@ export const admin = {
   }),
   audit: (token) => request('/admin/audit?limit=200', token),
 }
+
+export const scans = {
+  list: (token, organizationId) => request(
+    `/scans?${new URLSearchParams({ organization_id: organizationId })}`,
+    token,
+  ),
+  addTarget: (token, organizationId, url) => request('/scan-targets', token, {
+    method: 'POST',
+    body: { organization_id: organizationId, url },
+  }),
+  verify: (token, targetId) => request(`/scan-targets/${targetId}/verify`, token, { method: 'POST' }),
+  removeTarget: (token, targetId) => request(`/scan-targets/${targetId}`, token, { method: 'DELETE' }),
+  start: (token, targetId) => request('/scans', token, { method: 'POST', body: { target_id: targetId } }),
+}

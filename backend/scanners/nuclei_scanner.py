@@ -9,18 +9,19 @@ import subprocess
 from datetime import datetime
 
 
-def run_nuclei_scan(target_url: str) -> list:
+def run_nuclei_scan(target_url: str, extra_args=(), timeout=300) -> list:
     findings = []
 
     command = [
         "nuclei",
         "-u", target_url,
         "-jsonl",
-        "-silent"
+        "-silent",
+        *extra_args,
     ]
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
         if result.returncode != 0:
             print(f"nuclei exited {result.returncode}: {result.stderr[-500:]}")
             return findings
