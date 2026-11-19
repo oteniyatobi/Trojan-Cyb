@@ -146,7 +146,7 @@ function App() {
   const [dataLoadedForOrganization, setDataLoadedForOrganization] = useState('')
   const [dataLoadedForUser, setDataLoadedForUser] = useState('')
   const [dataError, setDataError] = useState(null)
-  const [scans, setScans] = useState([])
+  const [dataReload, setDataReload] = useState(0)
   const [workspaceOverrides, setWorkspaceOverrides] = useState(null)
   const [services, setServices] = useState([])
   const [healthError, setHealthError] = useState('')
@@ -387,7 +387,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [selectedOrganizationId, userId, workspaceReady])
+  }, [selectedOrganizationId, userId, workspaceReady, dataReload])
 
   useEffect(() => {
     if (page !== 'health' || !userId) return undefined
@@ -435,21 +435,7 @@ function App() {
     setTheme(theme === 'light' ? 'dark' : 'light')
   }
 
-  function addScan(scan) {
-    const requested = new Date().toLocaleString(undefined, {
-      timeZone: workspace.timezone,
-    })
-    setScans((current) => [
-      {
-        ...scan,
-        id: `DEMO-${String(current.length + 1).padStart(3, '0')}`,
-        status: 'Queued',
-        requested,
-        findings: null,
-      },
-      ...current,
-    ])
-  }
+  const reloadOrganizationData = useCallback(() => setDataReload((value) => value + 1), [])
 
   async function handleSignOut() {
     const { error } = await supabase.auth.signOut()
@@ -552,7 +538,6 @@ function App() {
 
   const alertRouteLoading = page === 'alerts' && alertId && organizationDataLoading
   const demoNotice = {
-    scans: 'Scan requests are demonstrations only; no scanner runs or contacts a target.',
     health: 'Service status is live from the backend. Host monitoring is not connected yet.',
     settings: 'Workspace preferences are local demo settings and are not saved to Supabase.',
   }[page]
@@ -640,7 +625,15 @@ function App() {
               )}
               {activePage === 'Organizations' && <TrojanAdmin getToken={getToken} />}
               {activePage === 'Findings' && <Findings findings={mappedFindings} />}
-              {activePage === 'Scans' && <Scans scans={scans} onAddScan={addScan} />}
+              {activePage === 'Scans' && (
+                <Scans
+                  canScan={isPlatformAdmin || membershipRole === 'org_admin'}
+                  getToken={getToken}
+                  key={selectedOrganizationId}
+                  onFindingsChanged={reloadOrganizationData}
+                  organizationId={selectedOrganizationId}
+                />
+              )}
               {activePage === 'Health' && (
                 <Health
                   services={dashboardData.services}

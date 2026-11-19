@@ -1,0 +1,43 @@
+name: Website scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_id:
+        description: TROJAN scan ID
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-${{ inputs.scan_id }}
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install scanners
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nmap > /dev/null
+          curl -sSL -o /tmp/nuclei.zip https://github.com/projectdiscovery/nuclei/releases/download/v3.4.10/nuclei_3.4.10_linux_amd64.zip
+          sudo unzip -q -o /tmp/nuclei.zip nuclei -d /usr/local/bin
+          nuclei -update-templates -silent > /dev/null 2>&1 || true
+
+      - name: Scan
+        env:
+          TROJAN_API_URL: ${{ vars.TROJAN_API_URL || 'https://trojan-cyb.vercel.app' }}
+          SCAN_WORKER_SECRET: ${{ secrets.SCAN_WORKER_SECRET }}
+          SCAN_ID: ${{ inputs.scan_id }}
+        run: python -m scanners.worker "$SCAN_ID"

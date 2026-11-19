@@ -103,3 +103,24 @@ No other file needs editing.
   worker, which don't exist yet.
 - **Nothing calls the scanners yet.** No API route or worker runs
   them, and findings aren't saved to the `findings` table.
+
+## Website scans from the dashboard
+
+Org admins add a website on the Scans page and prove they own it by
+uploading `/.well-known/trojan-verify.txt` with the code TROJAN shows.
+"Scan now" creates a row in `scans` and starts the `Website scan` GitHub
+workflow, which runs `python -m scanners.worker <scan_id>`: Nuclei
+(`-as`, rate limited) on the website and Nmap on its hostname. The worker
+reads the target from `/v1/worker/scans/<id>/start` and sends findings to
+`/v1/worker/scans/<id>/finish`, both protected by `SCAN_WORKER_SECRET`.
+The repository is public, so the worker masks the target in the logs and
+prints only counts.
+
+Setup:
+
+- Vercel: `GITHUB_DISPATCH_TOKEN` (fine-grained token for this repository
+  with Actions read and write) and `SCAN_WORKER_SECRET`.
+- GitHub repository secret: `SCAN_WORKER_SECRET` (same value).
+
+Limits: one running scan per website, 10 scans per organization per day,
+and scans not finished after 45 minutes are marked failed.
