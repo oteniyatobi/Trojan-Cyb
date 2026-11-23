@@ -320,12 +320,22 @@ function App() {
         data = result.data
       }
 
-      const availableOrganizations = data
+      let availableOrganizations = data
         .map((membership) => ({
           ...membership.organizations,
           role: membership.role,
         }))
         .filter((organization) => organization.id)
+
+      if (platformAdmin) {
+        const all = await supabase.from('organizations').select('id, name').order('name')
+        if (all.error) throw all.error
+        const roles = Object.fromEntries(availableOrganizations.map((organization) => [organization.id, organization.role]))
+        availableOrganizations = all.data.map((organization) => ({
+          ...organization,
+          role: roles[organization.id] ?? 'platform_admin',
+        }))
+      }
 
       if (!active) return
       setIsPlatformAdmin(Boolean(platformAdmin))
@@ -631,7 +641,7 @@ function App() {
               )}
               {activePage === 'Team' && (
                 <Team
-                  canManage={membershipRole === 'org_admin'}
+                  canManage={isPlatformAdmin || membershipRole === 'org_admin'}
                   getToken={getToken}
                   key={selectedOrganizationId}
                   organizationId={selectedOrganizationId}
