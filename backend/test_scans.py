@@ -17,7 +17,6 @@ def target(verified=True):
         "organization_id": ORG,
         "url": "https://example.com",
         "hostname": "example.com",
-        "verification_token": "abc123",
         "verified_at": "2026-11-20T10:00:00+00:00" if verified else None,
         "created_at": "2026-11-20T09:00:00+00:00",
     }
@@ -43,29 +42,27 @@ class NormalizeUrlTests(unittest.TestCase):
 
 
 class ScanStoreTests(unittest.TestCase):
-    @patch("scan_store.get_supabase_client")
-    @patch("scan_store._fetch_verification", return_value="other\nabc123\n")
-    @patch("scan_store._public_host", return_value=True)
-    @patch("scan_store._visible_target", return_value=target(verified=False))
-    def test_verify_marks_target_verified(self, _visible, _public, _fetch, get_client):
-        update = get_client.return_value.table.return_value.update
-        update.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[target()])
-
-        self.assertTrue(scan_store.verify_target("token", TARGET)["verified_at"])
-        self.assertIn("verified_at", update.call_args.args[0])
-
-    @patch("scan_store._fetch_verification", return_value="wrong-code")
-    @patch("scan_store._public_host", return_value=True)
-    @patch("scan_store._visible_target", return_value=target(verified=False))
-    def test_verify_rejects_missing_code(self, *_):
+    def test_adding_a_website_needs_confirmation(self):
         with self.assertRaises(scan_store.ScanError):
-            scan_store.verify_target("token", TARGET)
+            scan_store.add_target("token", ORG, "example.com", False)
 
     @patch("scan_store._public_host", return_value=False)
-    @patch("scan_store._visible_target", return_value=target(verified=False))
-    def test_verify_refuses_private_hosts(self, *_):
+    def test_adding_a_private_website_is_refused(self, _):
         with self.assertRaises(scan_store.ScanError):
-            scan_store.verify_target("token", TARGET)
+            scan_store.add_target("token", ORG, "example.com", True)
+
+    @patch("scan_store.get_supabase_client")
+    @patch("scan_store.get_user_client")
+    @patch("scan_store._public_host", return_value=True)
+    def test_confirmed_website_can_be_scanned(self, _public, user, service):
+        user.return_value.table.return_value.insert.return_value.execute.return_value = SimpleNamespace(
+            data=[target(verified=False)],
+        )
+        update = service.return_value.table.return_value.update
+        update.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[target()])
+
+        self.assertTrue(scan_store.add_target("token", ORG, "https://example.com", True)["verified_at"])
+        self.assertIn("verified_at", update.call_args.args[0])
 
     @patch("scan_store._visible_target", return_value=target(verified=False))
     def test_unverified_target_cannot_be_scanned(self, _):

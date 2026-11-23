@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import useAdminData from '../admin/useAdminData.js'
 import Badge from '../components/Badge.jsx'
-import CodeBlock from '../components/CodeBlock.jsx'
 import { scans as scanApi } from '../lib/api.js'
 
 const statusNames = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed' }
@@ -11,25 +10,12 @@ function formatDate(value) {
   return value ? new Date(value).toLocaleString() : '—'
 }
 
-function Verification({ target }) {
-  return (
-    <div className="setup-steps">
-      <p className="panel-caption">
-        Before TROJAN can scan this website, prove you own it. Upload a text file to this address:
-      </p>
-      <CodeBlock label="Verification file address" text={`${target.url}/.well-known/trojan-verify.txt`} />
-      <p className="panel-caption">The file must contain this code:</p>
-      <CodeBlock label="Verification code" text={target.verification_token} />
-      <p className="panel-caption">Then select Check verification.</p>
-    </div>
-  )
-}
-
 function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
   const [reload, setReload] = useState(0)
   const fetcher = useCallback((token) => scanApi.list(token, organizationId), [organizationId])
   const { data, error } = useAdminData(getToken, fetcher, reload)
   const [url, setUrl] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [actionError, setActionError] = useState('')
@@ -71,10 +57,13 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
   async function addTarget(event) {
     event.preventDefault()
     const added = await run(
-      (token) => scanApi.addTarget(token, organizationId, url),
-      'Website added. Upload the verification file, then check verification.',
+      (token) => scanApi.addTarget(token, organizationId, url, confirmed),
+      'Website added. You can scan it now.',
     )
-    if (added) setUrl('')
+    if (added) {
+      setUrl('')
+      setConfirmed(false)
+    }
   }
 
   if (error) return <p className="error-message" role="alert">{error}</p>
@@ -90,7 +79,7 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
         <section className="panel">
           <h2>Add a website</h2>
           <p className="panel-caption">
-            Only add websites your organization owns. Each website must be verified before it can be scanned.
+            Only add websites your organization owns or has written permission to test.
           </p>
           <form className="inline-form" onSubmit={addTarget}>
             <label>
@@ -101,6 +90,15 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
                 required
                 value={url}
               />
+            </label>
+            <label className="checkbox-label">
+              <input
+                checked={confirmed}
+                onChange={(event) => setConfirmed(event.target.checked)}
+                required
+                type="checkbox"
+              />
+              I own this website or have permission to scan it
             </label>
             <button className="primary-button" disabled={busy} type="submit">Add website</button>
           </form>
@@ -120,12 +118,14 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
             <div className="scan-target" key={target.id}>
               <div className="section-heading">
                 <h3>{target.hostname}</h3>
-                <Badge>{target.verified_at ? 'Verified' : 'Not verified'}</Badge>
+                {!target.verified_at && <Badge>Not confirmed</Badge>}
               </div>
-              {!target.verified_at && <Verification target={target} />}
+              {!target.verified_at && (
+                <p className="panel-caption">Remove this website and add it again to confirm you may scan it.</p>
+              )}
               {canScan && (
                 <div className="key-actions">
-                  {target.verified_at ? (
+                  {target.verified_at && (
                     <button
                       className="primary-button"
                       disabled={busy || scanning}
@@ -133,15 +133,6 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
                       onClick={() => run((token) => scanApi.start(token, target.id), 'Scan started.')}
                     >
                       {scanning ? 'Scanning…' : 'Scan now'}
-                    </button>
-                  ) : (
-                    <button
-                      className="primary-button"
-                      disabled={busy}
-                      type="button"
-                      onClick={() => run((token) => scanApi.verify(token, target.id), 'Website verified.')}
-                    >
-                      Check verification
                     </button>
                   )}
                   <button

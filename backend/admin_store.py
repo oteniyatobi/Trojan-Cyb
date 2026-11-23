@@ -1,10 +1,13 @@
 import hashlib
+import os
+import re
 import secrets
 from datetime import datetime, timezone
 
 from supabase_store import get_supabase_client, get_user_client
 
 ROLES = ("org_admin", "analyst", "viewer")
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class AdminError(Exception):
@@ -116,6 +119,79 @@ def create_organization(actor_id: str, name: str, admin_email: str) -> dict:
     _audit(actor_id, organization["id"], "organization.created", "organization", organization["id"],
            {"name": name, "admin_user_id": admin_id})
     return organization
+
+
+def _invite(email: str) -> str:
+    redirect = os.getenv("TROJAN_APP_URL", "https://trojan-cyb.vercel.app")
+    response = get_supabase_client().auth.admin.invite_user_by_email(email, {"redirect_to": redirect})
+    return response.user.id
+
+
+def add_member(actor_id: str, organization_id: str, email: str, role: str) -> dict:
+    email = (email or "").strip().lower()
+    if not EMAIL.match(email):
+        raise AdminError("Enter a valid email address")
+    if role not in ROLES:
+        raise AdminError("Role must be org_admin, analyst or viewer")
+    client = get_supabase_client()
+    if not client.table("organizations").select("id").eq("id", organization_id).limit(1).execute().data:
+        raise AdminError("Organization not found", 404)
+
+    user_id = _user_id_for_email(email)
+    invited = False
+    if not user_id:
+        try:
+            user_id = _invite(email)
+        except Exception:
+            raise AdminError("Couldn't send an invite to that email. Try again later.", 502)
+        invited = True
+
+    existing = (
+        client.table("organization_memberships").select("role")
+        .eq("organization_id", organization_id).eq("user_id", user_id).limit(1).execute().data
+    )
+    if existing:
+        raise AdminError(f"{email} is already in this organization", 409)
+    client.table("organization_memberships").insert({
+        "organization_id": organization_id,
+        "user_id": user_id,
+        "role": role,
+    }).execute()
+    _audit(actor_id, organization_id, "membership.added", "membership", user_id,
+           {"email": email, "role": role, "invited": invited})
+    return {"user_id": user_id, "email": email, "role": role, "invited": invited}
+
+
+def organization_members(organization_id: str) -> list[dict]:
+    client = get_supabase_client()
+    rows = (
+        client.table("organization_memberships").select("user_id, role, created_at")
+        .eq("organization_id", organization_id).order("created_at").execute().data
+    )
+    users = _users_by_id()
+    return [
+        {
+            "user_id": row["user_id"],
+            "email": users[row["user_id"]].email if row["user_id"] in users else None,
+            "role": row["role"],
+            "joined_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+def organization_role(access_token: str, organization_id: str) -> tuple[str, str]:
+    response = get_supabase_client().auth.get_user(access_token)
+    user = response.user if response else None
+    if not user:
+        raise AdminError("Sign in required", 401)
+    membership = (
+        get_supabase_client().table("organization_memberships").select("role")
+        .eq("organization_id", organization_id).eq("user_id", user.id).limit(1).execute().data
+    )
+    if not membership:
+        raise AdminError("You are not a member of this organization", 403)
+    return user.id, membership[0]["role"]
 
 
 def set_member_role(actor_id: str, organization_id: str, user_id: str, role: str) -> None:

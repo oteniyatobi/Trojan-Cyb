@@ -222,6 +222,57 @@ def admin_create_key(organization_id):
     ))
 
 
+@app.route("/v1/admin/organizations/<organization_id>/members", methods=["POST"])
+def admin_add_member(organization_id):
+    if not valid_uuid(organization_id):
+        return jsonify({"error": "Organization not found"}), 404
+    body = json_body()
+    return admin_action(lambda actor: (
+        jsonify(admin_store.add_member(
+            actor, organization_id, str(body.get("email", "")), str(body.get("role", "viewer")),
+        )),
+        201,
+    ))
+
+
+def member_action(organization_id, action):
+    token = user_token()
+    if not token:
+        return jsonify({"error": "Sign in required"}), 401
+    if not valid_uuid(organization_id):
+        return jsonify({"error": "Organization not found"}), 404
+    try:
+        user_id, role = admin_store.organization_role(token, organization_id)
+        return action(user_id, role)
+    except admin_store.AdminError as error:
+        return jsonify({"error": str(error)}), error.status
+    except SupabaseConfigurationError as error:
+        return jsonify({"error": str(error)}), 503
+    except Exception:
+        app.logger.exception("Member request failed")
+        return jsonify({"error": "Member request failed"}), 502
+
+
+@app.route("/v1/organizations/<organization_id>/members", methods=["GET"])
+def members_list(organization_id):
+    return member_action(organization_id, lambda _user, _role: (
+        jsonify({"members": admin_store.organization_members(organization_id)}), 200
+    ))
+
+
+@app.route("/v1/organizations/<organization_id>/members", methods=["POST"])
+def members_add(organization_id):
+    body = json_body()
+
+    def add(user_id, role):
+        if role != "org_admin":
+            return jsonify({"error": "Only organization admins can add people"}), 403
+        return jsonify(admin_store.add_member(
+            user_id, organization_id, str(body.get("email", "")), str(body.get("role", "viewer")),
+        )), 201
+    return member_action(organization_id, add)
+
+
 @app.route("/v1/admin/keys/<key_id>/revoke", methods=["POST"])
 def admin_revoke_key(key_id):
     if not valid_uuid(key_id):
@@ -432,7 +483,7 @@ def scan_target_add():
     if not organization_id:
         return jsonify({"error": "organization_id must be a UUID"}), 422
     return scan_action(lambda token: (
-        jsonify(scan_store.add_target(token, organization_id, body.get("url"))), 201
+        jsonify(scan_store.add_target(token, organization_id, body.get("url"), body.get("confirmed"))), 201
     ))
 
 
@@ -445,13 +496,6 @@ def scan_target_remove(target_id):
         scan_store.remove_target(token, target_id)
         return jsonify({"removed": True}), 200
     return scan_action(remove)
-
-
-@app.route("/v1/scan-targets/<target_id>/verify", methods=["POST"])
-def scan_target_verify(target_id):
-    if not valid_uuid(target_id):
-        return jsonify({"error": "Website not found"}), 404
-    return scan_action(lambda token: (jsonify(scan_store.verify_target(token, target_id)), 200))
 
 
 @app.route("/v1/scans", methods=["POST"])

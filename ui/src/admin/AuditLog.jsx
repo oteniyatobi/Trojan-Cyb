@@ -4,6 +4,7 @@ import useAdminData from './useAdminData.js'
 const actions = {
   'organization.created': 'Created organization',
   'membership.role_changed': 'Changed member role',
+  'membership.added': 'Added member',
   'ingest_key.created': 'Created ingest key',
   'ingest_key.revoked': 'Revoked ingest key',
   'platform_admin.added': 'Added TROJAN admin',

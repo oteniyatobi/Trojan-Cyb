@@ -6,6 +6,7 @@ import Alerts from './pages/Alerts.jsx'
 import AlertDetail from './pages/AlertDetail.jsx'
 import Findings from './pages/Findings.jsx'
 import Scans from './pages/Scans.jsx'
+import Team from './pages/Team.jsx'
 import Health from './pages/Health.jsx'
 import Settings from './pages/Settings.jsx'
 import Login from './pages/Login.jsx'
@@ -23,6 +24,7 @@ const pages = {
   health: 'Health',
   settings: 'Settings',
   organizations: 'Organizations',
+  team: 'Team',
 }
 
 function titleCase(value) {
@@ -296,47 +298,34 @@ function App() {
       )
       if (roleError) throw roleError
 
-      let availableOrganizations
-      if (platformAdmin) {
-        const { data, error } = await supabase
-          .from('organizations')
-          .select('id, name')
-          .order('name')
-        if (error) throw error
-        availableOrganizations = data.map((organization) => ({
-          ...organization,
-          role: 'platform_admin',
-        }))
-      } else {
-        let { data, error } = await supabase
+      let { data, error } = await supabase
+        .from('organization_memberships')
+        .select('organization_id, role, created_at, organizations(id, name)')
+        .eq('user_id', userId)
+        .order('created_at')
+      if (error) throw error
+
+      if (!data.length && signupOrganizationName) {
+        const { error: createError } = await supabase.rpc('create_organization', {
+          p_name: signupOrganizationName,
+        })
+        if (createError) throw createError
+
+        const result = await supabase
           .from('organization_memberships')
           .select('organization_id, role, created_at, organizations(id, name)')
           .eq('user_id', userId)
           .order('created_at')
-        if (error) throw error
-
-        if (!data.length && signupOrganizationName) {
-          const { error: createError } = await supabase.rpc('create_organization', {
-            p_name: signupOrganizationName,
-          })
-          if (createError) throw createError
-
-          const result = await supabase
-            .from('organization_memberships')
-            .select('organization_id, role, created_at, organizations(id, name)')
-            .eq('user_id', userId)
-            .order('created_at')
-          if (result.error) throw result.error
-          data = result.data
-        }
-
-        availableOrganizations = data
-          .map((membership) => ({
-            ...membership.organizations,
-            role: membership.role,
-          }))
-          .filter((organization) => organization.id)
+        if (result.error) throw result.error
+        data = result.data
       }
+
+      const availableOrganizations = data
+        .map((membership) => ({
+          ...membership.organizations,
+          role: membership.role,
+        }))
+        .filter((organization) => organization.id)
 
       if (!active) return
       setIsPlatformAdmin(Boolean(platformAdmin))
@@ -515,6 +504,12 @@ function App() {
         <section className="auth-card" aria-labelledby="create-org-title">
           <h1 id="create-org-title">Set up your organization</h1>
           <p>Your account will become its organization administrator.</p>
+          {isPlatformAdmin && (
+            <p>
+              You're a TROJAN admin. To manage other organizations, use the{' '}
+              <a href={adminUrl}>admin site</a>.
+            </p>
+          )}
           {organizationError && <p className="error-message" role="alert">{organizationError}</p>}
           <form className="form-stack" onSubmit={handleCreateOrganization}>
             <label>
@@ -631,6 +626,14 @@ function App() {
                   getToken={getToken}
                   key={selectedOrganizationId}
                   onFindingsChanged={reloadOrganizationData}
+                  organizationId={selectedOrganizationId}
+                />
+              )}
+              {activePage === 'Team' && (
+                <Team
+                  canManage={membershipRole === 'org_admin'}
+                  getToken={getToken}
+                  key={selectedOrganizationId}
                   organizationId={selectedOrganizationId}
                 />
               )}

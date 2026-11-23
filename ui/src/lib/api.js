@@ -45,6 +45,11 @@ export const admin = {
     token,
     { method: 'PATCH', body: { role } },
   ),
+  addMember: (token, organizationId, email, role) => request(
+    `/admin/organizations/${organizationId}/members`,
+    token,
+    { method: 'POST', body: { email, role } },
+  ),
   createKey: (token, organizationId, label) => request(
     `/admin/organizations/${organizationId}/keys`,
     token,
@@ -69,11 +74,18 @@ export const scans = {
     `/scans?${new URLSearchParams({ organization_id: organizationId })}`,
     token,
   ),
-  addTarget: (token, organizationId, url) => request('/scan-targets', token, {
+  addTarget: (token, organizationId, url, confirmed) => request('/scan-targets', token, {
     method: 'POST',
-    body: { organization_id: organizationId, url },
+    body: { organization_id: organizationId, url, confirmed },
   }),
-  verify: (token, targetId) => request(`/scan-targets/${targetId}/verify`, token, { method: 'POST' }),
   removeTarget: (token, targetId) => request(`/scan-targets/${targetId}`, token, { method: 'DELETE' }),
   start: (token, targetId) => request('/scans', token, { method: 'POST', body: { target_id: targetId } }),
+}
+
+export const members = {
+  list: (token, organizationId) => request(`/organizations/${organizationId}/members`, token),
+  add: (token, organizationId, email, role) => request(`/organizations/${organizationId}/members`, token, {
+    method: 'POST',
+    body: { email, role },
+  }),
 }

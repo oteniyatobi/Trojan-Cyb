@@ -1,6 +1,6 @@
 import Icon from './Icon.jsx'
 
-const navigationItems = ['Overview', 'Alerts', 'Findings', 'Scans', 'Health']
+const navigationItems = ['Overview', 'Alerts', 'Findings', 'Scans', 'Team', 'Health']
 
 function Sidebar({ activePage, onNavigate, isAdmin = false }) {
   return (

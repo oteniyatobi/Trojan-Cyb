@@ -106,8 +106,8 @@ No other file needs editing.
 
 ## Website scans from the dashboard
 
-Org admins add a website on the Scans page and prove they own it by
-uploading `/.well-known/trojan-verify.txt` with the code TROJAN shows.
+Org admins add a website on the Scans page and tick "I own this website
+or have permission to scan it". TROJAN records who added it and when.
 "Scan now" creates a row in `scans` and starts the `Website scan` GitHub
 workflow, which runs `python -m scanners.worker <scan_id>`: Nuclei
 (`-as`, rate limited) on the website and Nmap on its hostname. The worker
