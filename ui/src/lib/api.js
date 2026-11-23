@@ -78,6 +78,10 @@ export const scans = {
     method: 'POST',
     body: { organization_id: organizationId, url, confirmed },
   }),
+  confirmTarget: (token, targetId) => request(`/scan-targets/${targetId}/confirm`, token, {
+    method: 'POST',
+    body: { confirmed: true },
+  }),
   removeTarget: (token, targetId) => request(`/scan-targets/${targetId}`, token, { method: 'DELETE' }),
   start: (token, targetId) => request('/scans', token, { method: 'POST', body: { target_id: targetId } }),
 }
