@@ -126,6 +126,26 @@ class ScanStoreTests(unittest.TestCase):
         finish.assert_called_once_with(SCAN, "completed", findings_count=1, error="Nmap did not finish.")
 
 
+class WorkerHostTests(unittest.TestCase):
+    @patch.dict(os.environ, {
+        "TROJAN_API_URL": "https://trojan-cyb.vercel.app/",
+        "TROJAN_FALLBACK_API_URL": "https://trojan-cyb-admin.vercel.app",
+    })
+    def test_results_avoid_the_scanned_host(self):
+        from scanners import worker
+        self.assertEqual(worker.api_urls("trojan-cyb.vercel.app"), [
+            "https://trojan-cyb-admin.vercel.app", "https://trojan-cyb.vercel.app",
+        ])
+        self.assertEqual(worker.api_urls("example.com")[0], "https://trojan-cyb.vercel.app")
+
+    @patch.dict(os.environ, {"TROJAN_API_URL": "https://a.example", "TROJAN_FALLBACK_API_URL": "https://b.example"})
+    def test_call_falls_back_when_the_first_host_fails(self):
+        from scanners import worker
+        with patch("scanners.worker.post", side_effect=[OSError("blocked"), {"stored": 1}]) as post:
+            self.assertEqual(worker.call("id/finish", {}), {"stored": 1})
+        self.assertEqual(post.call_args.args[0], "https://b.example")
+
+
 class ScanRouteTests(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
