@@ -185,11 +185,8 @@ def organization_role(access_token: str, organization_id: str) -> tuple[str, str
     user = response.user if response else None
     if not user:
         raise AdminError("Sign in required", 401)
-    client = get_supabase_client()
-    if client.table("platform_admins").select("user_id").eq("user_id", user.id).limit(1).execute().data:
-        return user.id, "platform_admin"
     membership = (
-        client.table("organization_memberships").select("role")
+        get_supabase_client().table("organization_memberships").select("role")
         .eq("organization_id", organization_id).eq("user_id", user.id).limit(1).execute().data
     )
     if not membership:

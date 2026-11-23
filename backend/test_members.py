@@ -90,15 +90,6 @@ class MemberRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         add.assert_called_once_with(USER, ORG, "a@b.com", "analyst")
 
-    @patch("admin_store.add_member", return_value={"invited": False})
-    @patch("admin_store.organization_role", return_value=(USER, "platform_admin"))
-    def test_trojan_admin_can_add_to_any_org(self, _role, add):
-        response = self.client.post(
-            f"/v1/organizations/{ORG}/members", json={"email": "a@b.com"}, headers=self.auth,
-        )
-        self.assertEqual(response.status_code, 201)
-        add.assert_called_once_with(USER, ORG, "a@b.com", "viewer")
-
     @patch("admin_store.organization_role", side_effect=admin_store.AdminError("nope", 403))
     def test_non_members_cannot_list(self, _role):
         response = self.client.get(f"/v1/organizations/{ORG}/members", headers=self.auth)

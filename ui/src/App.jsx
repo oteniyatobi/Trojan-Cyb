@@ -11,10 +11,10 @@ import Health from './pages/Health.jsx'
 import Settings from './pages/Settings.jsx'
 import Login from './pages/Login.jsx'
 import Demo from './pages/Demo.jsx'
-import TrojanAdmin from './pages/TrojanAdmin.jsx'
 import { supabase, supabaseConfigured } from './lib/supabase.js'
 import { fetchAlerts, fetchFindings, fetchHealth } from './lib/api.js'
 import { adminUrl } from './lib/site.js'
+import { roleNames } from './lib/roles.js'
 
 const pages = {
   overview: 'Overview',
@@ -23,7 +23,6 @@ const pages = {
   scans: 'Scans',
   health: 'Health',
   settings: 'Settings',
-  organizations: 'Organizations',
   team: 'Team',
 }
 
@@ -170,9 +169,9 @@ function App() {
   )?.role
   const workspace = workspaceOverrides ?? {
     name: selectedOrganization?.name ?? 'TROJAN',
-    organization: isPlatformAdmin ? 'Platform administrator' : 'Security workspace',
+    organization: 'Security workspace',
     user: userName,
-    role: isPlatformAdmin ? 'Platform admin' : membershipRole ?? 'Member',
+    role: roleNames[membershipRole] ?? 'Member',
     email: user?.email ?? '',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     notifications: true,
@@ -180,7 +179,7 @@ function App() {
   }
 
   const [page, alertId] = route.slice(1).split('/')
-  const activePage = Object.hasOwn(pages, page) && (page !== 'organizations' || isPlatformAdmin)
+  const activePage = Object.hasOwn(pages, page)
     ? pages[page]
     : null
   const visibleWorkspaceError = workspaceError?.userId === userId
@@ -320,22 +319,12 @@ function App() {
         data = result.data
       }
 
-      let availableOrganizations = data
+      const availableOrganizations = data
         .map((membership) => ({
           ...membership.organizations,
           role: membership.role,
         }))
         .filter((organization) => organization.id)
-
-      if (platformAdmin) {
-        const all = await supabase.from('organizations').select('id, name').order('name')
-        if (all.error) throw all.error
-        const roles = Object.fromEntries(availableOrganizations.map((organization) => [organization.id, organization.role]))
-        availableOrganizations = all.data.map((organization) => ({
-          ...organization,
-          role: roles[organization.id] ?? 'platform_admin',
-        }))
-      }
 
       if (!active) return
       setIsPlatformAdmin(Boolean(platformAdmin))
@@ -569,7 +558,7 @@ function App() {
         onSignOut={handleSignOut}
       />
       <div className={`app-body${collapsed ? ' sidebar-collapsed' : ''}`}>
-        <Sidebar activePage={activePage} onNavigate={navigate} isAdmin={isPlatformAdmin} />
+        <Sidebar activePage={activePage} onNavigate={navigate} />
         <main className="main-content" id="main-content" tabIndex={-1}>
           <div className="page-heading">
             <h1>{pageNotFound ? 'Page not found' : selectedAlert ? 'Alert Detail' : activePage}</h1>
@@ -628,11 +617,10 @@ function App() {
                   />
                 )
               )}
-              {activePage === 'Organizations' && <TrojanAdmin getToken={getToken} />}
               {activePage === 'Findings' && <Findings findings={mappedFindings} />}
               {activePage === 'Scans' && (
                 <Scans
-                  canScan={isPlatformAdmin || membershipRole === 'org_admin'}
+                  canScan={membershipRole === 'org_admin'}
                   getToken={getToken}
                   key={selectedOrganizationId}
                   onFindingsChanged={reloadOrganizationData}
@@ -641,7 +629,7 @@ function App() {
               )}
               {activePage === 'Team' && (
                 <Team
-                  canManage={isPlatformAdmin || membershipRole === 'org_admin'}
+                  canManage={membershipRole === 'org_admin'}
                   getToken={getToken}
                   key={selectedOrganizationId}
                   organizationId={selectedOrganizationId}
