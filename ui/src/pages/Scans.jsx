@@ -10,6 +10,25 @@ function formatDate(value) {
   return value ? new Date(value).toLocaleString() : '—'
 }
 
+function ConfirmTarget({ busy, onConfirm }) {
+  const [ticked, setTicked] = useState(false)
+  return (
+    <form
+      className="form-stack scan-confirm"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onConfirm()
+      }}
+    >
+      <label className="checkbox-label">
+        <input checked={ticked} onChange={(event) => setTicked(event.target.checked)} required type="checkbox" />
+        I own this website or have permission to scan it
+      </label>
+      <button className="primary-button" disabled={busy || !ticked} type="submit">Confirm and enable scanning</button>
+    </form>
+  )
+}
+
 function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
   const [reload, setReload] = useState(0)
   const fetcher = useCallback((token) => scanApi.list(token, organizationId), [organizationId])
@@ -81,7 +100,7 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
           <p className="panel-caption">
             Only add websites your organization owns or has written permission to test.
           </p>
-          <form className="inline-form" onSubmit={addTarget}>
+          <form className="form-stack" onSubmit={addTarget}>
             <label>
               Website address
               <input
@@ -100,7 +119,7 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
               />
               I own this website or have permission to scan it
             </label>
-            <button className="primary-button" disabled={busy} type="submit">Add website</button>
+            <button className="primary-button" disabled={busy || !confirmed} type="submit">Add website</button>
           </form>
         </section>
       )}
@@ -120,8 +139,14 @@ function Scans({ getToken, organizationId, canScan, onFindingsChanged }) {
                 <h3>{target.hostname}</h3>
                 {!target.verified_at && <Badge>Not confirmed</Badge>}
               </div>
-              {!target.verified_at && (
-                <p className="panel-caption">Remove this website and add it again to confirm you may scan it.</p>
+              {!target.verified_at && !canScan && (
+                <p className="panel-caption">An organization admin needs to confirm this website before it can be scanned.</p>
+              )}
+              {!target.verified_at && canScan && (
+                <ConfirmTarget
+                  busy={busy}
+                  onConfirm={() => run((token) => scanApi.confirmTarget(token, target.id), 'Website confirmed. You can scan it now.')}
+                />
               )}
               {canScan && (
                 <div className="key-actions">

@@ -105,12 +105,37 @@ def add_target(token: str, organization_id: str, raw_url: str, confirmed: bool) 
         )
     except APIError as error:
         raise _rejected(error)
-    target = response.data[0]
-    confirmed_at = (
+    return _mark_confirmed(response.data[0]["id"])
+
+
+def _mark_confirmed(target_id: str) -> dict:
+    response = (
         get_supabase_client().table("scan_targets")
-        .update({"verified_at": _now().isoformat()}).eq("id", target["id"]).execute()
+        .update({"verified_at": _now().isoformat()}).eq("id", target_id).execute()
     )
-    return confirmed_at.data[0]
+    return response.data[0]
+
+
+def _can_manage(token: str, organization_id: str) -> bool:
+    if get_user_client(token).rpc("current_user_is_platform_admin").execute().data is True:
+        return True
+    user = get_supabase_client().auth.get_user(token).user
+    rows = (
+        get_supabase_client().table("organization_memberships").select("role")
+        .eq("organization_id", organization_id).eq("user_id", user.id).limit(1).execute().data
+    )
+    return bool(rows) and rows[0]["role"] == "org_admin"
+
+
+def confirm_target(token: str, target_id: str, confirmed: bool) -> dict:
+    if confirmed is not True:
+        raise ScanError("Confirm you own this website or have permission to scan it.")
+    target = _visible_target(token, target_id)
+    if not _can_manage(token, target["organization_id"]):
+        raise ScanError("Only organization admins can do this.", 403)
+    if target["verified_at"]:
+        return target
+    return _mark_confirmed(target_id)
 
 
 def _visible_target(token: str, target_id: str) -> dict:
@@ -164,7 +189,7 @@ def _finish(scan_id: str, status: str, findings_count=None, error=None):
 def start_scan(token: str, target_id: str) -> dict:
     target = _visible_target(token, target_id)
     if not target["verified_at"]:
-        raise ScanError("Remove this website and add it again to confirm you may scan it.")
+        raise ScanError("Confirm you own this website or have permission to scan it.")
     organization_id = target["organization_id"]
     _expire_stale_scans(organization_id)
     service = get_supabase_client()

@@ -1773,3 +1773,9 @@ input[type='checkbox'] {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+.scan-confirm {
+  gap: var(--space-3);
+  justify-items: start;
+  margin-top: var(--space-3);
+}

@@ -64,6 +64,26 @@ class ScanStoreTests(unittest.TestCase):
         self.assertTrue(scan_store.add_target("token", ORG, "https://example.com", True)["verified_at"])
         self.assertIn("verified_at", update.call_args.args[0])
 
+    @patch("scan_store._mark_confirmed", return_value=target())
+    @patch("scan_store._can_manage", return_value=True)
+    @patch("scan_store._visible_target", return_value=target(verified=False))
+    def test_admin_can_confirm_an_existing_website(self, _visible, _manage, mark):
+        self.assertTrue(scan_store.confirm_target("token", TARGET, True)["verified_at"])
+        mark.assert_called_once_with(TARGET)
+
+    @patch("scan_store._mark_confirmed")
+    @patch("scan_store._can_manage", return_value=False)
+    @patch("scan_store._visible_target", return_value=target(verified=False))
+    def test_non_admin_cannot_confirm(self, _visible, _manage, mark):
+        with self.assertRaises(scan_store.ScanError) as raised:
+            scan_store.confirm_target("token", TARGET, True)
+        self.assertEqual(raised.exception.status, 403)
+        mark.assert_not_called()
+
+    def test_confirming_needs_the_checkbox(self):
+        with self.assertRaises(scan_store.ScanError):
+            scan_store.confirm_target("token", TARGET, False)
+
     @patch("scan_store._visible_target", return_value=target(verified=False))
     def test_unverified_target_cannot_be_scanned(self, _):
         with self.assertRaises(scan_store.ScanError):
