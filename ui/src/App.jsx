@@ -13,7 +13,6 @@ import Login from './pages/Login.jsx'
 import Demo from './pages/Demo.jsx'
 import { supabase, supabaseConfigured } from './lib/supabase.js'
 import { fetchAlerts, fetchFindings, fetchHealth } from './lib/api.js'
-import { adminUrl } from './lib/site.js'
 import { roleNames } from './lib/roles.js'
 
 const pages = {
@@ -135,7 +134,6 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [organizations, setOrganizations] = useState([])
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('')
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false)
   const [workspaceLoadedForUser, setWorkspaceLoadedForUser] = useState('')
   const [workspaceError, setWorkspaceError] = useState(null)
   const [workspaceReload, setWorkspaceReload] = useState(0)
@@ -292,11 +290,6 @@ function App() {
 
     let active = true
     async function loadOrganizations() {
-      const { data: platformAdmin, error: roleError } = await supabase.rpc(
-        'current_user_is_platform_admin',
-      )
-      if (roleError) throw roleError
-
       let { data, error } = await supabase
         .from('organization_memberships')
         .select('organization_id, role, created_at, organizations(id, name)')
@@ -327,7 +320,6 @@ function App() {
         .filter((organization) => organization.id)
 
       if (!active) return
-      setIsPlatformAdmin(Boolean(platformAdmin))
       setOrganizations(availableOrganizations)
       setSelectedOrganizationId((current) => (
         availableOrganizations.some((organization) => organization.id === current)
@@ -397,17 +389,6 @@ function App() {
       active = false
     }
   }, [page, userId])
-
-  useEffect(() => {
-    if (!workspaceReady || !isPlatformAdmin) return
-    try {
-      if (sessionStorage.getItem('trojan-admin-redirected') === userId) return
-      sessionStorage.setItem('trojan-admin-redirected', userId)
-    } catch {
-      return
-    }
-    window.location.assign(adminUrl)
-  }, [workspaceReady, isPlatformAdmin, userId])
 
   const getToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
@@ -503,12 +484,6 @@ function App() {
         <section className="auth-card" aria-labelledby="create-org-title">
           <h1 id="create-org-title">Set up your organization</h1>
           <p>Your account will become its organization administrator.</p>
-          {isPlatformAdmin && (
-            <p>
-              You're a TROJAN admin. To manage other organizations, use the{' '}
-              <a href={adminUrl}>admin site</a>.
-            </p>
-          )}
           {organizationError && <p className="error-message" role="alert">{organizationError}</p>}
           <form className="form-stack" onSubmit={handleCreateOrganization}>
             <label>
