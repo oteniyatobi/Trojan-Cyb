@@ -265,7 +265,7 @@ def members_add(organization_id):
     body = json_body()
 
     def add(user_id, role):
-        if role != "org_admin":
+        if role not in ("org_admin", "platform_admin"):
             return jsonify({"error": "Only organization admins can add people"}), 403
         return jsonify(admin_store.add_member(
             user_id, organization_id, str(body.get("email", "")), str(body.get("role", "viewer")),
