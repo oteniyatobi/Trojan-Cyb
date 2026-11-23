@@ -1,8 +1,6 @@
 import ipaddress
 import os
 import socket
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
@@ -11,11 +9,10 @@ from postgrest.exceptions import APIError
 
 from supabase_store import get_supabase_client, get_user_client, persist_findings
 
-TARGET_COLUMNS = "id, organization_id, url, hostname, verification_token, verified_at, created_at"
+TARGET_COLUMNS = "id, organization_id, url, hostname, verified_at, created_at"
 SCAN_COLUMNS = (
     "id, organization_id, target_id, status, findings_count, error, created_at, started_at, finished_at"
 )
-VERIFY_PATH = "/.well-known/trojan-verify.txt"
 SCAN_TIMEOUT = timedelta(minutes=45)
 SCANS_PER_DAY = 10
 DEFAULT_REPOSITORY = "oteniyatobi/Trojan-Cyb"
@@ -68,18 +65,6 @@ def _public_host(hostname: str) -> bool:
     return bool(addresses) and all(ipaddress.ip_address(a).is_global for a in addresses)
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
-def _fetch_verification(url: str) -> str:
-    opener = urllib.request.build_opener(_NoRedirect)
-    request = urllib.request.Request(url + VERIFY_PATH, headers={"User-Agent": "TROJAN-verify"})
-    with opener.open(request, timeout=10) as response:
-        return response.read(4096).decode("utf-8", "replace")
-
-
 def _expire_stale_scans(organization_id: str):
     cutoff = (_now() - SCAN_TIMEOUT).isoformat()
     (
@@ -106,8 +91,12 @@ def list_scans(token: str, organization_id: str) -> dict:
     return {"targets": targets.data or [], "scans": scans.data or []}
 
 
-def add_target(token: str, organization_id: str, raw_url: str) -> dict:
+def add_target(token: str, organization_id: str, raw_url: str, confirmed: bool) -> dict:
+    if confirmed is not True:
+        raise ScanError("Confirm you own this website or have permission to scan it.")
     url, hostname = normalize_url(raw_url)
+    if not _public_host(hostname):
+        raise ScanError("That website isn't reachable on the public internet.")
     try:
         response = (
             get_user_client(token).table("scan_targets")
@@ -116,7 +105,12 @@ def add_target(token: str, organization_id: str, raw_url: str) -> dict:
         )
     except APIError as error:
         raise _rejected(error)
-    return response.data[0]
+    target = response.data[0]
+    confirmed_at = (
+        get_supabase_client().table("scan_targets")
+        .update({"verified_at": _now().isoformat()}).eq("id", target["id"]).execute()
+    )
+    return confirmed_at.data[0]
 
 
 def _visible_target(token: str, target_id: str) -> dict:
@@ -134,25 +128,6 @@ def remove_target(token: str, target_id: str):
     response = get_user_client(token).table("scan_targets").delete().eq("id", target_id).execute()
     if not response.data:
         raise ScanError("Only organization admins can do this.", 403)
-
-
-def verify_target(token: str, target_id: str) -> dict:
-    target = _visible_target(token, target_id)
-    if target["verified_at"]:
-        return target
-    if not _public_host(target["hostname"]):
-        raise ScanError("That website isn't reachable on the public internet.")
-    try:
-        content = _fetch_verification(target["url"])
-    except (urllib.error.URLError, OSError, ValueError):
-        raise ScanError(f"Couldn't read {target['url']}{VERIFY_PATH}. Check the file is uploaded.")
-    if target["verification_token"] not in content.split():
-        raise ScanError(f"{VERIFY_PATH} doesn't contain this website's code yet.")
-    response = (
-        get_supabase_client().table("scan_targets")
-        .update({"verified_at": _now().isoformat()}).eq("id", target_id).execute()
-    )
-    return response.data[0]
 
 
 def _dispatch(scan_id: str):
@@ -189,7 +164,7 @@ def _finish(scan_id: str, status: str, findings_count=None, error=None):
 def start_scan(token: str, target_id: str) -> dict:
     target = _visible_target(token, target_id)
     if not target["verified_at"]:
-        raise ScanError("Verify this website before scanning it.")
+        raise ScanError("Remove this website and add it again to confirm you may scan it.")
     organization_id = target["organization_id"]
     _expire_stale_scans(organization_id)
     service = get_supabase_client()

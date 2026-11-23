@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Badge from '../components/Badge.jsx'
 import { admin } from '../lib/api.js'
 import ConnectWazuh from './ConnectWazuh.jsx'
+import AddMemberForm from '../components/AddMemberForm.jsx'
 
 const roles = { org_admin: 'Admin', analyst: 'Analyst', viewer: 'Viewer' }
 
@@ -97,6 +98,10 @@ function OrganizationPanel({ organization, run, busy }) {
         </table>
       </div>
       {organization.members.length === 0 && <p className="empty-state">No members yet.</p>}
+      <AddMemberForm
+        busy={busy}
+        onAdd={(email, role) => run((token) => admin.addMember(token, organization.id, email, role))}
+      />
 
       <h3>Wazuh ingest keys</h3>
       {organization.keys.length > 0 && (
