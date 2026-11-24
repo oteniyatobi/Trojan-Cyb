@@ -16,7 +16,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: backend
@@ -34,6 +34,7 @@ jobs:
           curl -sSL -o /tmp/nuclei.zip https://github.com/projectdiscovery/nuclei/releases/download/v3.4.10/nuclei_3.4.10_linux_amd64.zip
           sudo unzip -q -o /tmp/nuclei.zip nuclei -d /usr/local/bin
           nuclei -update-templates -silent > /dev/null 2>&1 || true
+          pip install -q -r scanners/requirements.txt
 
       - name: Scan
         env:

@@ -48,15 +48,20 @@ Revoke a key with `update public.ingest_keys set revoked_at = now() where id = .
    description; Suricata signature; source and destination IP and port;
    protocol; agent; manager; decoder; location. The raw event and `full_log`
    are not stored, because log lines can hold passwords or personal data.
-2. **Duplicates are skipped.** If the business already has this event id,
-   the result is `"review_status": "duplicate"` and Groq isn't called.
+2. **Duplicates are skipped once reviewed.** If the business already has
+   this event id and its review is `done`, the result is
+   `"review_status": "duplicate"` and Groq isn't called. If the earlier
+   review is `pending`, `unavailable` or `rate_limited`, the alert is
+   reviewed again, so resending it retries the review.
 3. **Hourly limit.** If the business already has `GROQ_REVIEWS_PER_HOUR`
    done reviews in the last hour, the alert is marked `rate_limited` and
    Groq isn't called.
 4. **Review.** Groq is called with retries: on a 429 it waits as long as
    `Retry-After` asks (up to 60 s), on a 5xx it backs off 1, 2, 4 s. A valid
    review is saved as `done`, and the alert's severity and title are updated
-   from it. A failure is saved as `unavailable`. Either way the alert stays.
+   from it. Harmless variations are fixed first (`"High"` becomes `"high"`,
+   a single step becomes a list); a review with missing or empty fields is
+   rejected. A failure is saved as `unavailable`. Either way the alert stays.
 
 `review_status` values: `pending`, `done`, `unavailable`, `rate_limited`.
 
@@ -65,16 +70,37 @@ Revoke a key with `update public.ingest_keys set revoked_at = now() where id = .
 fails, it returns 503 with `alert_index`, `stored_count` and the results
 so far.
 
+Groq is given only the fields kept in `source_payload`, never the raw
+Wazuh event, so log lines that can hold passwords don't leave TROJAN and
+the review matches what the dashboard shows.
+
 Groq is called inside the request, so a large batch can take a while.
-`rate_limited` and `pending` alerts aren't retried yet; that needs a
-background worker.
+
+**Retries.** A review that didn't finish is tried again two ways:
+
+- Resending the alert reviews it again unless its review is already `done`.
+- Every 15 minutes, `.github/workflows/review-retry.yml` calls
+  `POST /v1/worker/reviews/retry` (authorised with `SCAN_WORKER_SECRET`),
+  which re-reviews up to `REVIEW_RETRY_BATCH` alerts: `rate_limited` ones,
+  `unavailable` ones with fewer than 5 failed retries, and `pending` ones
+  stuck for over 10 minutes, least recently updated first. The hourly limit
+  still applies. Alerts with no stored `description` are skipped: those
+  stored before 21 Nov 2026 kept only `event_id` and `timestamp`, too little
+  for a meaningful review. Migration `20261123110000_review_retry.sql` adds the
+  `review_attempts` counter.
+
+Dashboard users can change only an alert's or finding's `status`. The AI
+review, severity, title and source fields are written by the backend
+(migration `20261122100000_scan_target_and_review_integrity.sql`).
 
 ## Configuration and local run
 
 Set backend variables in the repository-root `.env` using
 [`.env.example`](../.env.example). Apply the migrations in
 [`supabase/migrations/`](../supabase/migrations/) to the Supabase project,
-including `20261118120000_ingest_keys_and_review_status.sql`. Then install
+in timestamp order, including `20261122100000_scan_target_and_review_integrity.sql`,
+`20261123100000_scan_raw_output_bucket.sql` and `20261123110000_review_retry.sql`.
+Then install
 the dependencies and start Flask from this directory:
 
 ```bash
@@ -97,8 +123,10 @@ environment variables.
 | `GROQ_TIMEOUT_SECONDS` | `15` | per-request timeout |
 | `GROQ_MAX_RETRIES` | `3` | attempts per review |
 | `GROQ_REVIEWS_PER_HOUR` | `100` | Groq reviews per business per hour |
+| `REVIEW_RETRY_BATCH` | `3` | alerts re-reviewed per scheduled retry call (1 to 20) |
+| `SCAN_WORKER_SECRET` | none | authorises the scan worker and the review retry job |
 
-Alert content is sent to Groq when the key is configured.
+The stored alert fields are sent to Groq when the key is configured.
 
 ## Scanners
 

@@ -3,7 +3,7 @@ import Badge from '../components/Badge.jsx'
 import Icon from '../components/Icon.jsx'
 import { ActivityChart, SeverityChart } from '../components/Charts.jsx'
 
-const reviewLabels = { pending: 'Waiting', done: 'Done', unavailable: 'Not analyzed' }
+const reviewLabels = { pending: 'Waiting', done: 'Done', rate_limited: 'Hourly limit reached', unavailable: 'Not analyzed' }
 
 function Alerts({ data, onSelect }) {
   const [search, setSearch] = useState('')

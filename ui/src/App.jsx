@@ -57,8 +57,16 @@ function mapAlert(row) {
     explanation: review.what_happened ?? review.explanation ?? 'No AI review is available.',
     steps: Array.isArray(review.steps) ? review.steps : [],
     review: review.status === 'done' ? review : null,
-    reviewStatus: review.status === 'done' ? 'done' : 'unavailable',
+    reviewStatus: reviewStatusOf(row, review),
   }
+}
+
+// The backend stores review_status on each alert. Older rows only have
+// ai_review.status, so fall back to that.
+function reviewStatusOf(row, review) {
+  const value = row.review_status ?? review.status
+  if (value === 'done' && review.status !== 'done') return 'unavailable'
+  return ['pending', 'done', 'rate_limited', 'unavailable'].includes(value) ? value : 'unavailable'
 }
 
 function mapFinding(row) {

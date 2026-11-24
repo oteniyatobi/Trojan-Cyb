@@ -139,17 +139,50 @@ def check_groq_api_key():
     else:
         print("Your Groq key is set.")
 
+def _normalize_choice(value, choices):
+    """Return the entry of choices matching value ignoring case and spaces, else value."""
+    if not isinstance(value, str):
+        return value
+    return {choice.lower(): choice for choice in choices}.get(value.strip().lower(), value)
+
+
+def _steps_problem(review):
+    steps = review["steps"]
+    if isinstance(steps, str):
+        steps = [steps]
+    if not isinstance(steps, list) or not steps or not all(isinstance(step, str) and step.strip() for step in steps):
+        return "steps must be a non-empty list of text"
+    review["steps"] = steps
+    return None
+
+
 def check_review(review):
-    problems = []
+    """Return a list of problems with a review; empty means it can be saved.
+
+    Fixes harmless variations in place first: severity or attack_type in
+    another case ("High"), or steps sent as one string.
+    """
+    if not isinstance(review, dict):
+        return ["Review is not a JSON object"]
     missing = [key for key in REQUIRED_KEYS if key not in review]
     if missing:
-        problems.append(f"Missing keys: {', '.join(missing)}")
-        return problems
-    if review['attack_type'] not in ATTACK_TYPES:
+        return [f"Missing keys: {', '.join(missing)}"]
+
+    review["severity"] = _normalize_choice(review["severity"], SEVERITIES)
+    review["attack_type"] = _normalize_choice(review["attack_type"], ATTACK_TYPES)
+    problems = []
+    if review["severity"] not in SEVERITIES:
+        problems.append(f"Invalid severity: {review['severity']}")
+    if review["attack_type"] not in ATTACK_TYPES:
         problems.append(f"Invalid attack_type: {review['attack_type']}")
-    if review['severity'] not in SEVERITIES:
-        problems.append(f"Invalid severity: {review['severity']}")  
+    for field in ("headline", "what_happened", "why_it_matters", "when_to_escalate"):
+        if not isinstance(review[field], str) or not review[field].strip():
+            problems.append(f"{field} must be non-empty text")
+    steps_problem = _steps_problem(review)
+    if steps_problem:
+        problems.append(steps_problem)
     return problems
+
 
 if __name__ == "__main__":
     check_groq_api_key()

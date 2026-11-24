@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written in Nmap's XML format: the name did not resolve, so no host was scanned. -->
+<nmaprun scanner="nmap" args="nmap -sV -Pn -F -oX - no-such-name.example" version="7.98" xmloutputversion="1.05">
+<runstats><finished time="1795000000" elapsed="0.05" exit="success"/><hosts up="0" down="0" total="0"/></runstats>
+</nmaprun>

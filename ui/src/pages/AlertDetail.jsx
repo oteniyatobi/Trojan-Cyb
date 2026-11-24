@@ -1,7 +1,7 @@
 import Badge from '../components/Badge.jsx'
 import Icon from '../components/Icon.jsx'
 
-const reviewLabels = { pending: 'Waiting', done: 'Done', unavailable: 'Not analyzed' }
+const reviewLabels = { pending: 'Waiting', done: 'Done', rate_limited: 'Hourly limit reached', unavailable: 'Not analyzed' }
 
 function AlertDetail({ alert, onBack, demo = false }) {
   const review = alert.review
@@ -79,12 +79,18 @@ function AlertDetail({ alert, onBack, demo = false }) {
             <div className={`review-message review-${reviewState === 'pending' ? 'waiting' : 'unavailable'}`}>
               <Icon name={reviewState === 'pending' ? 'clock' : 'warning'} />
               <h3>
-                {reviewState === 'pending' ? 'Waiting for Groq’s review' : 'This alert has not been analyzed'}
+                {reviewState === 'pending'
+                  ? 'Waiting for Groq’s review'
+                  : reviewState === 'rate_limited'
+                    ? 'Hourly limit of AI reviews reached'
+                    : 'This alert has not been analyzed'}
               </h3>
               <p>
                 {reviewState === 'pending'
                   ? 'The alert has been saved. Groq’s review is not ready yet.'
-                  : 'A Groq review is unavailable. You can still investigate the original Wazuh evidence.'}
+                  : reviewState === 'rate_limited'
+                    ? 'This organization reached its hourly limit of AI reviews. The alert is saved, and TROJAN retries the review automatically once the limit resets.'
+                    : 'A Groq review is unavailable right now. TROJAN retries it automatically; meanwhile you can investigate the original Wazuh evidence.'}
               </p>
               {demo && <p>This is a fixed demo example; its review state will not change.</p>}
             </div>

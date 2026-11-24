@@ -2,19 +2,35 @@
 
 Usage: python -m scanners.worker <scan_id>
 Needs TROJAN_API_URL and SCAN_WORKER_SECRET. The repository is public, so
-nothing about the target is printed beyond what GitHub masks.
+the log shows only tool names and counts: never the target, a failure
+reason (it can name the website) or the raw output.
+
+Time budget: the GitHub job stops at 40 minutes (scan.yml) and installing
+the tools takes about 4, so the tools get at most 10 + 7 + 7 = 24 minutes,
+leaving room for a slow site. The backend marks a scan failed after 45.
 """
+import base64
 import contextlib
-import io
+import gzip
 import json
 import os
 import sys
 import urllib.request
 
+from scanners.common import MAX_RAW_FILE_CHARS, ScannerError
 from scanners.nmap_scanner import run_nmap_scan
 from scanners.nuclei_scanner import run_nuclei_scan
+from scanners.wapiti_scanner import run_wapiti_scan
 
-PROBLEM_WORDS = ("timed out", "failed", "exited")
+TOOLS = (
+    ("Nuclei", lambda target: run_nuclei_scan(target["url"], timeout=600)),
+    ("Wapiti", lambda target: run_wapiti_scan(target["url"], max_scan_time=300, timeout=420)),
+    ("Nmap", lambda target: run_nmap_scan(target["hostname"], timeout=420)),
+)
+# The backend runs on Vercel, which rejects request bodies over 4.5 MB, and
+# rejects any one raw file over MAX_RAW_FILE_CHARS (2 MB). A file over either
+# limit is left out rather than losing the whole scan.
+MAX_RAW_BYTES = 3_000_000
 
 
 def call(path, body=None):
@@ -31,13 +47,52 @@ def call(path, body=None):
         return json.load(response)
 
 
-def run_tool(name, scan):
-    output = io.StringIO()
-    with contextlib.redirect_stdout(output):
-        findings = scan()
-    problem = any(word in output.getvalue() for word in PROBLEM_WORDS)
-    print(f"{name}: {len(findings)} findings{' (did not finish)' if problem else ''}")
-    return findings, problem
+def pack_raw_outputs(results):
+    """Gzip and base64 each tool's raw output, within the size limits.
+
+    Returns (packed, skipped): tools whose output is too large are named in
+    skipped, and their findings are still sent.
+    """
+    packed, used, skipped = [], 0, []
+    for result in results:
+        if not result.raw_output:
+            continue
+        content = base64.b64encode(gzip.compress(result.raw_output.encode())).decode()
+        if len(content) > MAX_RAW_FILE_CHARS or used + len(content) > MAX_RAW_BYTES:
+            skipped.append(result.tool)
+            continue
+        used += len(content)
+        packed.append({"tool": result.tool, "name": result.raw_name, "content": content})
+    return packed, skipped
+
+
+def run_tools(target, tools=None):
+    """Run each tool. Returns (results, failures) where failures maps name -> reason."""
+    tools = TOOLS if tools is None else tools  # read at call time, not import time
+    results, failures = [], {}
+    for name, scan in tools:
+        try:
+            result = scan(target)
+        except ScannerError as error:
+            failures[name] = error.reason
+            print(f"{name}: did not finish")
+            continue
+        except Exception as error:
+            failures[name] = f"crashed ({type(error).__name__})"
+            print(f"{name}: crashed")
+            continue
+        results.append(result)
+        print(f"{name}: {len(result.findings)} findings")
+    return results, failures
+
+
+def summarize(results, failures, tool_count):
+    """(error, warning) for the scan record."""
+    if failures and len(failures) == tool_count:
+        return "No scanner finished. " + " ".join(f"{n}: {r}." for n, r in failures.items()), None
+    if failures:
+        return None, " ".join(f"{n} did not finish: {r}." for n, r in failures.items())
+    return None, None
 
 
 def main(scan_id):
@@ -45,23 +100,16 @@ def main(scan_id):
     print(f"::add-mask::{target['url']}")
     print(f"::add-mask::{target['hostname']}")
 
-    findings, failed = [], []
-    tools = {
-        "Nuclei": lambda: run_nuclei_scan(target["url"], ("-as", "-rl", "50"), timeout=900),
-        "Nmap": lambda: run_nmap_scan(target["hostname"]),
-    }
-    for name, scan in tools.items():
-        try:
-            tool_findings, problem = run_tool(name, scan)
-        except Exception:
-            tool_findings, problem = [], True
-        findings.extend(tool_findings)
-        if problem:
-            failed.append(name)
+    results, failures = run_tools(target)
+    findings = [item for result in results for item in result.findings]
+    raw_outputs, skipped = pack_raw_outputs(results)
+    error, warning = summarize(results, failures, len(TOOLS))
+    if skipped:
+        note = f"Raw output not kept for {', '.join(skipped)} (too large)."
+        warning = f"{warning} {note}" if warning else note
 
-    error = "No scanner finished." if len(failed) == len(tools) and not findings else None
-    warning = f"{', '.join(failed)} did not finish." if failed and not error else None
-    result = call(f"{scan_id}/finish", {"findings": findings, "error": error, "warning": warning})
+    body = {"findings": findings, "error": error, "warning": warning, "raw_outputs": raw_outputs}
+    result = call(f"{scan_id}/finish", body)
     print(f"stored {result['stored']} findings")
 
 

@@ -1,5 +1,8 @@
+import base64
 import ipaddress
+import logging
 import os
+import re
 import socket
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -16,6 +19,16 @@ SCAN_COLUMNS = (
 SCAN_TIMEOUT = timedelta(minutes=45)
 SCANS_PER_DAY = 10
 DEFAULT_REPOSITORY = "oteniyatobi/Trojan-Cyb"
+# Raw scanner output is kept in a private Storage bucket, not as a GitHub
+# artifact: the repository is public, so its artifacts are too.
+RAW_OUTPUT_BUCKET = "scan-raw-output"
+MAX_RAW_OUTPUTS = 5
+# Must equal scanners.common.MAX_RAW_FILE_CHARS (test_scanners checks it).
+# Defined here because the API image doesn't include the scanners package.
+MAX_RAW_CONTENT = 2_000_000
+RAW_NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9_.-]{0,39}")
+
+logger = logging.getLogger(__name__)
 
 
 class ScanError(Exception):
@@ -33,6 +46,10 @@ def _rejected(error: APIError):
         return ScanError("Only organization admins can do this.", 403)
     if error.code == "23505":
         return ScanError("This website has already been added.", 409)
+    if error.code == "23514":
+        # scan_targets_url_matches_hostname: an address normalize_url allows
+        # but the database rejects, such as a non-ASCII or underscore name.
+        return ScanError("Enter a public website address like https://example.com.")
     return error
 
 
@@ -113,6 +130,21 @@ def add_target(token: str, organization_id: str, raw_url: str, confirmed: bool) 
     return confirmed_at.data[0]
 
 
+def _check_target(target: dict):
+    """Re-check a stored target with the same rules as add_target.
+
+    Targets can be inserted straight through Supabase, so url and hostname
+    may not have passed normalize_url. Wapiti and Nuclei scan `url`, Nmap
+    scans `hostname`; they must name the same public website.
+    """
+    try:
+        url, hostname = normalize_url(target["url"])
+    except ScanError:
+        url, hostname = None, None
+    if url != target["url"] or hostname != target["hostname"]:
+        raise ScanError("This website's address isn't valid. Remove it and add it again.", 409)
+
+
 def _visible_target(token: str, target_id: str) -> dict:
     response = (
         get_user_client(token).table("scan_targets").select(TARGET_COLUMNS)
@@ -165,6 +197,7 @@ def start_scan(token: str, target_id: str) -> dict:
     target = _visible_target(token, target_id)
     if not target["verified_at"]:
         raise ScanError("Remove this website and add it again to confirm you may scan it.")
+    _check_target(target)
     organization_id = target["organization_id"]
     _expire_stale_scans(organization_id)
     service = get_supabase_client()
@@ -215,10 +248,48 @@ def claim_scan(scan_id: str) -> dict:
     if not target.data:
         _finish(scan_id, "failed", error="The website was removed.")
         raise ScanError("The website was removed.", 409)
+    try:
+        _check_target(target.data[0])
+    except ScanError as error:
+        _finish(scan_id, "failed", error=str(error))
+        raise
     return target.data[0]
 
 
-def complete_scan(scan_id: str, findings: list, error: str | None, warning: str | None = None) -> int:
+def raw_outputs_error(raw_outputs) -> str | None:
+    """Why a worker's raw_outputs list is unacceptable, or None."""
+    if not isinstance(raw_outputs, list) or len(raw_outputs) > MAX_RAW_OUTPUTS:
+        return f"raw_outputs must be a list of at most {MAX_RAW_OUTPUTS} items"
+    for item in raw_outputs:
+        if not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in ("tool", "name", "content")):
+            return "each raw output needs tool, name and content"
+        if not RAW_NAME_PATTERN.fullmatch(item["name"]) or len(item["content"]) > MAX_RAW_CONTENT:
+            return "raw output name or size is not allowed"
+    return None
+
+
+def _store_raw_outputs(organization_id: str, scan_id: str, raw_outputs: list) -> dict:
+    """Upload gzipped raw tool output to private storage. Returns {tool: path}.
+
+    A failed upload is logged and skipped: the findings matter more than
+    the raw file, so it never fails the scan.
+    """
+    refs = {}
+    bucket = get_supabase_client().storage.from_(RAW_OUTPUT_BUCKET)
+    for item in raw_outputs:
+        path = f"{organization_id}/{scan_id}/{item['name']}.gz"
+        try:
+            content = base64.b64decode(item["content"], validate=True)
+            bucket.upload(path, content, {"content-type": "application/gzip", "upsert": "true"})
+        except Exception:
+            logger.exception("Could not store raw %s output for scan %s", item["tool"], scan_id)
+            continue
+        refs[item["tool"]] = f"{RAW_OUTPUT_BUCKET}/{path}"
+    return refs
+
+
+def complete_scan(scan_id: str, findings: list, error: str | None, warning: str | None = None,
+                  raw_outputs: list | None = None) -> int:
     service = get_supabase_client()
     scan = (
         service.table("scans").select("organization_id, status")
@@ -226,8 +297,14 @@ def complete_scan(scan_id: str, findings: list, error: str | None, warning: str 
     )
     if not scan.data or scan.data[0]["status"] != "running":
         raise ScanError("Scan is not running.", 409)
+    organization_id = scan.data[0]["organization_id"]
+    refs = _store_raw_outputs(organization_id, scan_id, raw_outputs) if raw_outputs else {}
     for finding in findings:
         finding["scan_id"] = scan_id
-    stored = persist_findings(scan.data[0]["organization_id"], findings) if findings else 0
-    _finish(scan_id, "failed" if error else "completed", findings_count=stored, error=error or warning)
+        if finding.get("tool") in refs:
+            finding["raw_output_ref"] = refs[finding["tool"]]
+    stored = persist_findings(organization_id, findings) if findings else 0
+    # findings_count is what this scan found; stored can be lower when some
+    # findings were already open from an earlier scan.
+    _finish(scan_id, "failed" if error else "completed", findings_count=len(findings), error=error or warning)
     return stored
