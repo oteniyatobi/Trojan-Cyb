@@ -508,6 +508,14 @@ def scan_target_add():
     ))
 
 
+@app.route("/v1/scan-targets/<target_id>/confirm", methods=["POST"])
+def scan_target_confirm(target_id):
+    if not valid_uuid(target_id):
+        return jsonify({"error": "Website not found"}), 404
+    confirmed = json_body().get("confirmed")
+    return scan_action(lambda token: (jsonify(scan_store.confirm_target(token, target_id, confirmed)), 200))
+
+
 @app.route("/v1/scan-targets/<target_id>", methods=["DELETE"])
 def scan_target_remove(target_id):
     if not valid_uuid(target_id):

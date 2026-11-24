@@ -39,6 +39,7 @@ jobs:
       - name: Scan
         env:
           TROJAN_API_URL: ${{ vars.TROJAN_API_URL || 'https://trojan-cyb.vercel.app' }}
+          TROJAN_FALLBACK_API_URL: ${{ vars.TROJAN_FALLBACK_API_URL || 'https://trojan-cyb-admin.vercel.app' }}
           SCAN_WORKER_SECRET: ${{ secrets.SCAN_WORKER_SECRET }}
           SCAN_ID: ${{ inputs.scan_id }}
         run: python -m scanners.worker "$SCAN_ID"

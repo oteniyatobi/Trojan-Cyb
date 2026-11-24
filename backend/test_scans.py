@@ -64,6 +64,26 @@ class ScanStoreTests(unittest.TestCase):
         self.assertTrue(scan_store.add_target("token", ORG, "https://example.com", True)["verified_at"])
         self.assertIn("verified_at", update.call_args.args[0])
 
+    @patch("scan_store._mark_confirmed", return_value=target())
+    @patch("scan_store._can_manage", return_value=True)
+    @patch("scan_store._visible_target", return_value=target(verified=False))
+    def test_admin_can_confirm_an_existing_website(self, _visible, _manage, mark):
+        self.assertTrue(scan_store.confirm_target("token", TARGET, True)["verified_at"])
+        mark.assert_called_once_with(TARGET)
+
+    @patch("scan_store._mark_confirmed")
+    @patch("scan_store._can_manage", return_value=False)
+    @patch("scan_store._visible_target", return_value=target(verified=False))
+    def test_non_admin_cannot_confirm(self, _visible, _manage, mark):
+        with self.assertRaises(scan_store.ScanError) as raised:
+            scan_store.confirm_target("token", TARGET, True)
+        self.assertEqual(raised.exception.status, 403)
+        mark.assert_not_called()
+
+    def test_confirming_needs_the_checkbox(self):
+        with self.assertRaises(scan_store.ScanError):
+            scan_store.confirm_target("token", TARGET, False)
+
     @patch("scan_store._visible_target", return_value=target(verified=False))
     def test_unverified_target_cannot_be_scanned(self, _):
         with self.assertRaises(scan_store.ScanError):
@@ -138,6 +158,26 @@ class ScanStoreTests(unittest.TestCase):
         error = scan_store._rejected(SimpleNamespace(code="23514"))
         self.assertIsInstance(error, scan_store.ScanError)
         self.assertEqual(error.status, 400)
+
+
+class WorkerHostTests(unittest.TestCase):
+    @patch.dict(os.environ, {
+        "TROJAN_API_URL": "https://trojan-cyb.vercel.app/",
+        "TROJAN_FALLBACK_API_URL": "https://trojan-cyb-admin.vercel.app",
+    })
+    def test_results_avoid_the_scanned_host(self):
+        from scanners import worker
+        self.assertEqual(worker.api_urls("trojan-cyb.vercel.app"), [
+            "https://trojan-cyb-admin.vercel.app", "https://trojan-cyb.vercel.app",
+        ])
+        self.assertEqual(worker.api_urls("example.com")[0], "https://trojan-cyb.vercel.app")
+
+    @patch.dict(os.environ, {"TROJAN_API_URL": "https://a.example", "TROJAN_FALLBACK_API_URL": "https://b.example"})
+    def test_call_falls_back_when_the_first_host_fails(self):
+        from scanners import worker
+        with patch("scanners.worker.post", side_effect=[OSError("blocked"), {"stored": 1}]) as post:
+            self.assertEqual(worker.call("id/finish", {}), {"stored": 1})
+        self.assertEqual(post.call_args.args[0], "https://b.example")
 
 
 class ScanRouteTests(unittest.TestCase):
