@@ -77,17 +77,39 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/scanners/requirements.txt
 
+      # wapiti3 is installed so the test of scanners/wapiti_safe.py (the guard
+      # that stops Wapiti submitting forms) runs here instead of skipping.
       - name: Install dependencies
         if: steps.detect.outputs.exists == 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r scanners/requirements.txt
 
       - name: Run tests
         if: steps.detect.outputs.exists == 'true'
-        run: python -m unittest discover -v
+        run: |
+          python -m unittest discover -v 2>&1 | tee test-output.txt
+          if grep -q "wapiti3 is installed only in the scan worker" test-output.txt; then
+            echo "::error::The Wapiti form-guard test was skipped"; exit 1
+          fi
+
+  backend-image:
+    name: Backend Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image copies named files and .dockerignore leaves out scanners/,
+      # so an API import of a file that isn't copied only fails here, not in
+      # the unit tests (which see the whole folder) or on Vercel.
+      - name: Build the image and import the app
+        run: |
+          docker build -t trojan-backend-ci backend
+          docker run --rm trojan-backend-ci python -c "import app; print(len(app.app.url_map._rules), 'routes')"
 
   frontend-lint:
     name: Frontend Linting

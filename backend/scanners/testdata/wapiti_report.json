@@ -1,0 +1,384 @@
+{
+ "vulnerabilities": {
+  "Backup file": [],
+  "Cleartext Submission of Password": [],
+  "Weak credentials": [],
+  "CRLF Injection": [],
+  "Content Security Policy Configuration": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "CSP is not set for URL: http://127.0.0.1:58088/",
+    "level": 1,
+    "parameter": null,
+    "module": "csp"
+   }
+  ],
+  "Cross Site Request Forgery": [],
+  "CVE-2024-55591": [],
+  "Potentially dangerous file": [],
+  "Command execution": [],
+  "Path Traversal": [],
+  "Fingerprint web application framework": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "{\"name\": \"Python\", \"versions\": [\"3.14.4\"], \"cpe\": \"cpe:2.3:a:python:python:*:*:*:*:*:*:*:*\", \"categories\": [\"Programming languages\"], \"groups\": [\"Web development\"]}",
+    "level": 0,
+    "parameter": null,
+    "module": "wapp"
+   }
+  ],
+  "Fingerprint web server": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "{\"name\": \"Apache HTTP Server\", \"versions\": [\"2.4.49\"], \"cpe\": \"cpe:2.3:a:apache:http_server:*:*:*:*:*:*:*:*\", \"categories\": [\"Web servers\"], \"groups\": [\"Servers\"]}",
+    "level": 0,
+    "parameter": null,
+    "module": "wapp"
+   }
+  ],
+  "Htaccess Bypass": [],
+  "HTML Injection": [],
+  "Clickjacking Protection": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "X-Frame-Options is not set",
+    "level": 1,
+    "parameter": null,
+    "module": "http_headers"
+   }
+  ],
+  "HTTP Strict Transport Security (HSTS)": [],
+  "MIME Type Confusion": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "X-Content-Type-Options is not set",
+    "level": 1,
+    "parameter": null,
+    "module": "http_headers"
+   }
+  ],
+  "HttpOnly Flag cookie": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "HttpOnly flag is not set on the cookie 'session' set at 'http://127.0.0.1:58088/'",
+    "level": 1,
+    "parameter": null,
+    "module": "cookieflags"
+   }
+  ],
+  "Unencrypted Channels": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "Sensitive data (cookie in the response) was sent over an unencrypted HTTP connection to http://127.0.0.1:58088/. The server did not enforce HTTPS.",
+    "level": 2,
+    "parameter": null,
+    "module": "https_redirect"
+   }
+  ],
+  "Inconsistent Redirection": [],
+  "Information Disclosure - Full Path": [],
+  "LDAP Injection": [],
+  "Log4Shell": [],
+  "NS takeover": [],
+  "Open Redirect": [],
+  "Reflected Cross Site Scripting": [],
+  "Secure Flag cookie": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "Secure flag is not set on the cookie: 'session' set at 'http://127.0.0.1:58088/'",
+    "level": 1,
+    "parameter": null,
+    "module": "cookieflags"
+   }
+  ],
+  "Spring4Shell": [],
+  "SQL Injection": [],
+  "TLS/SSL misconfigurations": [],
+  "Server Side Request Forgery": [],
+  "Stack Trace Disclosure": [],
+  "Stored HTML Injection": [],
+  "Stored Cross Site Scripting": [],
+  "Subdomain takeover": [],
+  "Blind SQL Injection": [],
+  "Unrestricted File Upload": [],
+  "Vulnerable software": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2006-20001: A carefully crafted If: request header can cause a memory read, or write of a single zero byte, in a pool (heap) memory location beyond the header value sent. This could cause the process to crash.\n\nThis issue affects Apache HTTP Server 2.4.54 and earlier.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2024-27316: HTTP/2 incoming headers exceeding the limit are temporarily buffered in nghttp2 in order to generate an informative HTTP 413 response. If a client does not stop sending headers, this leads to memory exhaustion.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2024-38474: Substitution encoding issue in mod_rewrite in Apache HTTP Server 2.4.59 and earlier allows attacker to execute scripts in\ndirectories permitted by the configuration but not directly reachable by any\u00a0URL or source disclosure of scripts meant to only to be executed as CGI.\n\nUsers are recommended to upgrade to version 2.4.60, which fixes this issue.\n\nSome RewriteRules that capture and substitute unsafely will now fail unless rewrite flag \"UnsafeAllow3F\" is specified.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2024-38475: Improper escaping of output in mod_rewrite in Apache HTTP Server 2.4.59 and earlier allows an attacker to map URLs to filesystem locations that are\u00a0permitted to be served by the server but are not intentionally/directly reachable by any URL, resulting in code execution or source code disclosure. \n\nSubstitutions in\u00a0server context that use a backreferences or variables as the first segment of the substitution are affected.\u00a0 Some unsafe RewiteRules will be broken by this change and the rewrite flag \"UnsafePrefixStat\" can be used to opt back in once ensuring the substitution is appropriately constrained.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2024-38476: Vulnerability in core of Apache HTTP Server 2.4.59 and earlier are vulnerably to information disclosure, SSRF or local script execution via\u00a0backend applications whose response headers are malicious or exploitable.\n\nUsers are recommended to upgrade to version 2.4.60, which fixes this issue.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2024-38477: null pointer dereference in mod_proxy in Apache HTTP Server 2.4.59 and earlier allows an attacker to crash the server via a malicious request.\nUsers are recommended to upgrade to version 2.4.60, which fixes this issue.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2024-40898: SSRF in Apache HTTP Server on Windows with mod_rewrite in server/vhost context, allows to potentially leak NTML hashes to a malicious server via SSRF and malicious requests.\n\nUsers are recommended to upgrade to version 2.4.62 which fixes this issue.\u00a0",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2021-41524: While fuzzing the 2.4.49 httpd, a new null pointer dereference was detected during HTTP/2 request processing, allowing an external source to DoS the server. This requires a specially crafted request. The vulnerability was recently introduced in version 2.4.49. No exploit is known to the project.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2021-41773: A flaw was found in a change made to path normalization in Apache HTTP Server 2.4.49. An attacker could use a path traversal attack to map URLs to files outside the directories configured by Alias-like directives. If files outside of these directories are not protected by the usual default configuration \"require all denied\", these requests can succeed. If CGI scripts are also enabled for these aliased pathes, this could allow for remote code execution. This issue is known to be exploited in the wild. This issue only affects Apache 2.4.49 and not earlier versions. The fix in Apache HTTP Server 2.4.50 was found to be incomplete, see CVE-2021-42013.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2021-42013: It was found that the fix for CVE-2021-41773 in Apache HTTP Server 2.4.50 was insufficient. An attacker could use a path traversal attack to map URLs to files outside the directories configured by Alias-like directives. If files outside of these directories are not protected by the usual default configuration \"require all denied\", these requests can succeed. If CGI scripts are also enabled for these aliased pathes, this could allow for remote code execution. This issue only affects Apache 2.4.49 and Apache 2.4.50 and not earlier versions.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2021-44224: A crafted URI sent to httpd configured as a forward proxy (ProxyRequests on) can cause a crash (NULL pointer dereference) or, for configurations mixing forward and reverse proxy declarations, can allow for requests to be directed to a declared Unix Domain Socket endpoint (Server Side Request Forgery). This issue affects Apache HTTP Server 2.4.7 up to 2.4.51 (included).",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2021-44790: A carefully crafted request body can cause a buffer overflow in the mod_lua multipart parser (r:parsebody() called from Lua scripts). The Apache httpd team is not aware of an exploit for the vulnerabilty though it might be possible to craft one. This issue affects Apache HTTP Server 2.4.51 and earlier.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2023-25690: Some mod_proxy configurations on Apache HTTP Server versions 2.4.0 through 2.4.55 allow a HTTP Request Smuggling attack.\n\n\n\n\nConfigurations are affected when mod_proxy is enabled along with some form of RewriteRule\n or ProxyPassMatch in which a non-specific pattern matches\n some portion of the user-supplied request-target (URL) data and is then\n re-inserted into the proxied request-target using variable \nsubstitution. For example, something like:\n\n\n\n\nRewriteEngine on\nRewriteRule \"^/here/(.*)\" \"http://example.com:8080/elsewhere?$1\"; [P]\nProxyPassReverse /here/ http://example.com:8080/\n\n\nRequest splitting/smuggling could result in bypass of access controls in the proxy server, proxying unintended URLs to existing origin servers, and cache poisoning. Users are recommended to update to at least version 2.4.56 of Apache HTTP Server.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2023-27522: HTTP Response Smuggling vulnerability in Apache HTTP Server via mod_proxy_uwsgi. This issue affects Apache HTTP Server: from 2.4.30 through 2.4.55.\n\nSpecial characters in the origin response header can truncate/split the response forwarded to the client.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2023-31122: Out-of-bounds Read vulnerability in mod_macro of Apache HTTP Server.This issue affects Apache HTTP Server: through 2.4.57.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2023-45802: When a HTTP/2 stream was reset (RST frame) by a client, there was a time window were the request's memory resources were not reclaimed immediately. Instead, de-allocation was deferred to connection close. A client could send new requests and resets, keeping the connection busy and open and causing the memory footprint to keep on growing. On connection close, all resources were reclaimed, but the process might run out of memory before that.\n\nThis was found by the reporter during testing of\u00a0CVE-2023-44487 (HTTP/2 Rapid Reset Exploit) with their own test client. During \"normal\" HTTP/2 use, the probability to hit this bug is very low. The kept memory would not become noticeable before the connection closes or times out.\n\nUsers are recommended to upgrade to version 2.4.58, which fixes the issue.",
+    "level": 2,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-22719: A carefully crafted request body can cause a read to a random memory area which could cause the process to crash. This issue affects Apache HTTP Server 2.4.52 and earlier.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-22720: Apache HTTP Server 2.4.52 and earlier fails to close inbound connection when errors are encountered discarding the request body, exposing the server to HTTP Request Smuggling",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-22721: If LimitXMLRequestBody is set to allow request bodies larger than 350MB (defaults to 1M) on 32 bit systems an integer overflow happens which later causes out of bounds writes. This issue affects Apache HTTP Server 2.4.52 and earlier.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-23943: Out-of-bounds Write vulnerability in mod_sed of Apache HTTP Server allows an attacker to overwrite heap memory with possibly attacker provided data. This issue affects Apache HTTP Server 2.4 version 2.4.52 and prior versions.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-26377: Inconsistent Interpretation of HTTP Requests ('HTTP Request Smuggling') vulnerability in mod_proxy_ajp of Apache HTTP Server allows an attacker to smuggle requests to the AJP server it forwards requests to. This issue affects Apache HTTP Server Apache HTTP Server 2.4 version 2.4.53 and prior versions.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-28330: Apache HTTP Server 2.4.53 and earlier on Windows may read beyond bounds when configured to process requests with the mod_isapi module.",
+    "level": 2,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-28614: The ap_rwrite() function in Apache HTTP Server 2.4.53 and earlier may read unintended memory if an attacker can cause the server to reflect very large input using ap_rwrite() or ap_rputs(), such as with mod_luas r:puts() function. Modules compiled and distributed separately from Apache HTTP Server that use the 'ap_rputs' function and may pass it a very large (INT_MAX or larger) string must be compiled against current headers to resolve the issue.",
+    "level": 2,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-28615: Apache HTTP Server 2.4.53 and earlier may crash or disclose information due to a read beyond bounds in ap_strcmp_match() when provided with an extremely large input buffer. While no code distributed with the server can be coerced into such a call, third-party modules or lua scripts that use ap_strcmp_match() may hypothetically be affected.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-29404: In Apache HTTP Server 2.4.53 and earlier, a malicious request to a lua script that calls r:parsebody(0) may cause a denial of service due to no default limit on possible input size.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-30556: Apache HTTP Server 2.4.53 and earlier may return lengths to applications calling r:wsread() that point past the end of the storage allocated for the buffer.",
+    "level": 3,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-31813: Apache HTTP Server 2.4.53 and earlier may not send the X-Forwarded-* headers to the origin server based on client side Connection header hop-by-hop mechanism. This may be used to bypass IP based authentication on the origin server/application.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-36760: Inconsistent Interpretation of HTTP Requests ('HTTP Request Smuggling') vulnerability in mod_proxy_ajp of Apache HTTP Server allows an attacker to smuggle requests to the AJP server it forwards requests to.  This issue affects Apache HTTP Server Apache HTTP Server 2.4 version 2.4.54 and prior versions.",
+    "level": 4,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "apache CVE-2022-37436: Prior to Apache HTTP Server 2.4.55, a malicious backend can cause the response headers to be truncated early, resulting in some headers being incorporated into the response body. If the later headers have any security purpose, they will not be interpreted by the client.",
+    "level": 2,
+    "parameter": null,
+    "module": "wapp"
+   }
+  ]
+ },
+ "anomalies": {
+  "Internal Server Error": [],
+  "Resource consumption": []
+ },
+ "additionals": {
+  "Review Webserver Metafiles for Information Leakage": [],
+  "Fingerprint web technology": [
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "{\"name\": \"Apache HTTP Server\", \"versions\": [\"2.4.49\"], \"cpe\": \"cpe:2.3:a:apache:http_server:*:*:*:*:*:*:*:*\", \"categories\": [\"Web servers\"], \"groups\": [\"Servers\"]}",
+    "level": 0,
+    "parameter": null,
+    "module": "wapp"
+   },
+   {
+    "method": "GET",
+    "path": "/",
+    "info": "{\"name\": \"Python\", \"versions\": [\"3.14.4\"], \"cpe\": \"cpe:2.3:a:python:python:*:*:*:*:*:*:*:*\", \"categories\": [\"Programming languages\"], \"groups\": [\"Web development\"]}",
+    "level": 0,
+    "parameter": null,
+    "module": "wapp"
+   }
+  ],
+  "HTTP Methods": [],
+  "TLS/SSL misconfigurations": []
+ },
+ "infos": {
+  "target": "http://127.0.0.1:58088/",
+  "date": "Mon, 23 Nov 2026 09:08:40 +0000",
+  "version": "Wapiti 3.3.2",
+  "scope": "domain",
+  "auth": null,
+  "crawled_pages_nbr": 1,
+  "detailed_report_level": 0
+ },
+ "suppressed_findings": {}
+}

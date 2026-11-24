@@ -125,6 +125,40 @@ class ScanStoreTests(unittest.TestCase):
         self.assertEqual(persist.call_args.args[1][0]["scan_id"], SCAN)
         finish.assert_called_once_with(SCAN, "completed", findings_count=1, error="Nmap did not finish.")
 
+    @patch("scan_store._visible_target", return_value={
+        **target(), "url": "https://attacker.example", "hostname": "victim.example",
+    })
+    def test_start_refuses_url_and_hostname_that_disagree(self, _visible):
+        # Wapiti and Nuclei scan url, Nmap scans hostname, so they must match.
+        with self.assertRaises(scan_store.ScanError) as raised:
+            scan_store.start_scan("token", TARGET)
+        self.assertEqual(raised.exception.status, 409)
+
+    @patch("scan_store._visible_target", return_value={**target(), "url": "http://10.0.0.5", "hostname": "10.0.0.5"})
+    def test_target_added_outside_the_backend_cannot_be_scanned(self, _):
+        with self.assertRaises(scan_store.ScanError):
+            scan_store.start_scan("token", TARGET)
+
+    @patch("scan_store._finish")
+    @patch("scan_store.get_supabase_client")
+    def test_claim_fails_a_scan_whose_target_is_invalid(self, get_client, finish):
+        table = get_client.return_value.table.return_value
+        table.update.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+            data=[{"target_id": TARGET}],
+        )
+        table.select.return_value.eq.return_value.limit.return_value.execute.return_value = SimpleNamespace(
+            data=[{"url": "https://attacker.example", "hostname": "victim.example"}],
+        )
+
+        with self.assertRaises(scan_store.ScanError):
+            scan_store.claim_scan(SCAN)
+        self.assertEqual(finish.call_args.args[:2], (SCAN, "failed"))
+
+    def test_database_address_check_gives_a_clear_message(self):
+        error = scan_store._rejected(SimpleNamespace(code="23514"))
+        self.assertIsInstance(error, scan_store.ScanError)
+        self.assertEqual(error.status, 400)
+
 
 class WorkerHostTests(unittest.TestCase):
     @patch.dict(os.environ, {

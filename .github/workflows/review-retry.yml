@@ -1,0 +1,35 @@
+name: Retry alert reviews
+
+# Re-reviews alerts whose Groq review didn't finish (rate_limited,
+# unavailable, or pending after a request died), a few at a time. This
+# keeps the promise that a review completes once Groq or the hourly limit
+# allows it.
+#
+# The repository is public, so this prints only counts.
+# Note: GitHub pauses scheduled workflows in a repository with no activity
+# for 60 days.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-retry
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Retry reviews
+        env:
+          TROJAN_API_URL: ${{ vars.TROJAN_API_URL || 'https://trojan-cyb.vercel.app' }}
+          SCAN_WORKER_SECRET: ${{ secrets.SCAN_WORKER_SECRET }}
+        run: |
+          curl -fsS --max-time 280 -X POST \
+            -H "Authorization: Bearer $SCAN_WORKER_SECRET" \
+            "$TROJAN_API_URL/v1/worker/reviews/retry"

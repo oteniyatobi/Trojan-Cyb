@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import datetime, timezone
 import os
 import unittest
@@ -88,8 +89,9 @@ class AnalyzeTests(IngestionTestCase):
         store.assert_called_once()
         self.assertEqual(record.call_args.args[3], "unavailable")
 
+    @patch("api.alert_review_status", return_value="done")
     @patch("api.get_review")
-    def test_duplicate_alert_is_not_reviewed_again(self, get_review, store, record, _count):
+    def test_duplicate_alert_is_not_reviewed_again(self, get_review, _status, store, record, _count):
         store.return_value = (ALERT_ID, False)
 
         response = self.post_alerts([ALERT])
@@ -98,6 +100,30 @@ class AnalyzeTests(IngestionTestCase):
         self.assertEqual(response.json["results"][0]["review_status"], "duplicate")
         get_review.assert_not_called()
         record.assert_not_called()
+
+    @patch("api.alert_review_status", return_value="unavailable")
+    @patch("api.check_review", return_value=[])
+    @patch("api.get_review", return_value=REVIEW.copy())
+    def test_resent_alert_without_a_review_is_reviewed_again(
+        self, get_review, _check, _status, store, record, _count,
+    ):
+        store.return_value = (ALERT_ID, False)
+
+        response = self.post_alerts([ALERT])
+
+        self.assertEqual(response.json["results"][0]["review_status"], "done")
+        get_review.assert_called_once()
+        self.assertEqual(record.call_args.args[3], "done")
+
+    @patch("api.alert_review_status", side_effect=RuntimeError("Supabase down"))
+    @patch("api.get_review")
+    def test_duplicate_stays_duplicate_when_status_lookup_fails(self, get_review, _status, store, record, _count):
+        store.return_value = (ALERT_ID, False)
+
+        response = self.post_alerts([ALERT])
+
+        self.assertEqual(response.json["results"][0]["review_status"], "duplicate")
+        get_review.assert_not_called()
 
     @patch("api.get_review")
     def test_hourly_limit_skips_groq(self, get_review, _store, record, count):
@@ -146,6 +172,67 @@ class IngestKeyTests(IngestionTestCase):
 
         lookup.assert_not_called()
         store.assert_called_once_with(INSTALL_ORG, ALERT)
+
+
+@patch("api.reviews_in_last_hour", return_value=0)
+@patch("api.record_review")
+@patch("api.store_pending_alert", return_value=(ALERT_ID, True))
+class GroqInputTests(IngestionTestCase):
+    @patch("api.check_review", return_value=[])
+    @patch("api.get_review", return_value=REVIEW.copy())
+    def test_groq_gets_only_the_stored_fields_not_the_raw_log(self, get_review, *_):
+        self.post_alerts([WAZUH_ALERT])
+
+        sent = get_review.call_args.args[0]
+        self.assertIn("172.30.0.20", sent)
+        self.assertIn("TROJAN fake SQL injection", sent)
+        self.assertNotIn("full_log", sent)
+        self.assertNotIn("hunter2", sent)
+        self.assertEqual(json.loads(sent), supabase_store.alert_source_payload(WAZUH_ALERT))
+
+
+RETRY_HEADERS = {"Authorization": "Bearer worker-secret"}
+DUE = [
+    {"id": "a1", "organization_id": INSTALL_ORG, "source_payload": {"rule_id": "5712"},
+     "review_status": "unavailable", "review_attempts": 2},
+    {"id": "a2", "organization_id": OTHER_ORG, "source_payload": {"rule_id": "86601"},
+     "review_status": "rate_limited", "review_attempts": 0},
+]
+
+
+@patch.dict(os.environ, {"SCAN_WORKER_SECRET": "worker-secret"})
+class ReviewRetryTests(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_needs_the_worker_secret(self):
+        self.assertEqual(self.client.post("/v1/worker/reviews/retry").status_code, 401)
+        wrong = {"Authorization": "Bearer nope"}
+        self.assertEqual(self.client.post("/v1/worker/reviews/retry", headers=wrong).status_code, 401)
+
+    @patch("api.count_failed_review_attempt")
+    @patch("api.review_stored_alert", side_effect=[({}, "unavailable"), ({}, "done")])
+    @patch("api.alerts_due_for_review", return_value=DUE)
+    def test_retries_due_alerts_from_their_stored_fields(self, due, review, count_failed):
+        response = self.client.post("/v1/worker/reviews/retry", headers=RETRY_HEADERS)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"retried": 2, "outcomes": {"unavailable": 1, "done": 1}})
+        self.assertEqual(review.call_args_list[0].args, (INSTALL_ORG, "a1", {"rule_id": "5712"}))
+        # Only a failed retry counts towards the 5-attempt cap.
+        count_failed.assert_called_once_with(DUE[0])
+        due.assert_called_once_with(3)
+
+    @patch("api.review_stored_alert", side_effect=[RuntimeError("Supabase down"), ({}, "done")])
+    @patch("api.alerts_due_for_review", return_value=DUE)
+    def test_one_failure_doesnt_stop_the_batch(self, _due, _review):
+        response = self.client.post("/v1/worker/reviews/retry", headers=RETRY_HEADERS)
+        self.assertEqual(response.json["outcomes"], {"error": 1, "done": 1})
+
+    @patch("api.alerts_due_for_review", side_effect=RuntimeError("Supabase down"))
+    def test_listing_failure_is_reported(self, _due):
+        response = self.client.post("/v1/worker/reviews/retry", headers=RETRY_HEADERS)
+        self.assertEqual(response.status_code, 502)
 
 
 class FindingsTests(IngestionTestCase):
@@ -312,6 +399,65 @@ class SupabaseStoreTests(unittest.TestCase):
         self.assertEqual(stored, 1)
         row = client.table.return_value.insert.call_args.args[0][0]
         self.assertEqual(row["organization_id"], OTHER_ORG)
+
+    @patch("supabase_store.get_supabase_client")
+    def test_rescan_skips_findings_that_are_already_open(self, get_client):
+        client = MagicMock()
+        existing = client.table.return_value.select.return_value.eq.return_value.neq.return_value.in_.return_value
+        existing.execute.return_value = SimpleNamespace(data=[{"asset": "host-1", "title": "Open port"}])
+        client.table.return_value.insert.return_value.execute.return_value = SimpleNamespace(
+            data=[{"id": "finding-2"}],
+        )
+        get_client.return_value = client
+        findings = [
+            {"target": "host-1", "title": "Open port", "severity": "medium"},
+            {"target": "host-1", "title": "Outdated server", "severity": "high"},
+            {"target": "host-1", "title": "Outdated server", "severity": "high"},
+        ]
+
+        stored = supabase_store.persist_findings(OTHER_ORG, findings)
+
+        self.assertEqual(stored, 1)
+        rows = client.table.return_value.insert.call_args.args[0]
+        self.assertEqual([row["title"] for row in rows], ["Outdated server"])
+
+    @patch("supabase_store.get_supabase_client")
+    def test_nothing_is_inserted_when_every_finding_is_already_open(self, get_client):
+        client = MagicMock()
+        existing = client.table.return_value.select.return_value.eq.return_value.neq.return_value.in_.return_value
+        existing.execute.return_value = SimpleNamespace(data=[{"asset": "host-1", "title": "Open port"}])
+        get_client.return_value = client
+
+        stored = supabase_store.persist_findings(
+            OTHER_ORG, [{"target": "host-1", "title": "Open port", "severity": "medium"}],
+        )
+
+        self.assertEqual(stored, 0)
+        client.table.return_value.insert.assert_not_called()
+
+
+class ReviewRetryQueryTests(unittest.TestCase):
+    @patch("supabase_store.get_supabase_client")
+    def test_due_query_caps_failed_attempts_and_rotates_fairly(self, get_client):
+        query = get_client.return_value.table.return_value.select.return_value
+        filtered = query.or_.return_value.not_.is_.return_value
+        filtered.order.return_value.limit.return_value.execute.return_value = SimpleNamespace(data=DUE)
+
+        self.assertEqual(supabase_store.alerts_due_for_review(3), DUE)
+        # Old alerts that kept only event_id and timestamp are never retried.
+        query.or_.return_value.not_.is_.assert_called_once_with("source_payload->>description", "null")
+
+        filters = query.or_.call_args.args[0]
+        self.assertIn("review_status.eq.rate_limited", filters)
+        self.assertIn("and(review_status.eq.unavailable,review_attempts.lt.5)", filters)
+        self.assertIn("and(review_status.eq.pending,created_at.lt.", filters)
+        filtered.order.assert_called_once_with("updated_at")
+
+    @patch("supabase_store.get_supabase_client")
+    def test_failed_attempt_is_counted(self, get_client):
+        supabase_store.count_failed_review_attempt(DUE[0])
+        update = get_client.return_value.table.return_value.update
+        update.assert_called_once_with({"review_attempts": 3})
 
 
 if __name__ == "__main__":

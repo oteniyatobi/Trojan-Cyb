@@ -10,6 +10,10 @@ import scan_store
 from groq_review import check_review, get_review
 from supabase_store import (
     SupabaseConfigurationError,
+    alert_review_status,
+    alert_source_payload,
+    alerts_due_for_review,
+    count_failed_review_attempt,
     get_alert,
     get_organization_id,
     list_alerts,
@@ -131,10 +135,15 @@ def reviews_per_hour_limit():
     return int(os.getenv("GROQ_REVIEWS_PER_HOUR", "100"))
 
 
-def review_alert(alert):
-    """Ask Groq for a review. Returns (review, review_status)."""
+def review_alert(payload):
+    """Ask Groq for a review of the stored alert fields. Returns (review, review_status).
+
+    Groq gets only what is kept in source_payload, never the raw Wazuh
+    event, so log lines that can hold passwords don't leave TROJAN and the
+    review matches what the dashboard shows.
+    """
     try:
-        review = get_review(json.dumps(alert))
+        review = get_review(json.dumps(payload))
         problems = check_review(review)
     except Exception as error:
         app.logger.exception("Groq analysis failed")
@@ -146,16 +155,26 @@ def review_alert(alert):
     return review, "done"
 
 
-def review_stored_alert(organization_id, alert_id, alert):
-    """Review a stored alert within the hourly limit and save the outcome."""
+def review_stored_alert(organization_id, alert_id, payload):
+    """Review a stored alert's fields within the hourly limit and save the outcome."""
     limit = reviews_per_hour_limit()
     if reviews_in_last_hour(organization_id) >= limit:
         review = {"status": "rate_limited", "limit_per_hour": limit}
         review_status = "rate_limited"
     else:
-        review, review_status = review_alert(alert)
+        review, review_status = review_alert(payload)
     record_review(organization_id, alert_id, review, review_status)
     return review, review_status
+
+
+def needs_another_review(organization_id, alert_id):
+    """True if a re-sent alert's first review didn't finish (pending,
+    unavailable or rate limited), so resending it retries the review."""
+    try:
+        return alert_review_status(organization_id, alert_id) not in ("done", None)
+    except Exception:
+        app.logger.exception("Could not read the review status of alert %s", alert_id)
+        return False
 
 
 def admin_action(action):
@@ -386,13 +405,15 @@ def analyze():
                 "results": results,
             }), 503
 
-        if not inserted:
-            # Already stored for this business: don't spend another review.
+        if not inserted and not needs_another_review(organization_id, alert_id):
+            # Already stored and reviewed for this business: don't spend another review.
             results.append({"alert_id": alert_id, "review_status": "duplicate"})
             continue
 
         try:
-            review, review_status = review_stored_alert(organization_id, alert_id, alert)
+            review, review_status = review_stored_alert(
+                organization_id, alert_id, alert_source_payload(alert),
+            )
         except Exception:
             app.logger.exception("Could not save the review for alert %s", index)
             return jsonify({
@@ -549,12 +570,49 @@ def worker_scan_finish(scan_id):
         batch_error = findings_batch_error({"findings": findings})
         if batch_error:
             return batch_error
+    raw_outputs = body.get("raw_outputs") or []
+    raw_error = scan_store.raw_outputs_error(raw_outputs)
+    if raw_error:
+        return jsonify({"error": raw_error}), 422
 
     def finish():
-        stored = scan_store.complete_scan(scan_id, findings, body.get("error"), body.get("warning"))
+        stored = scan_store.complete_scan(
+            scan_id, findings, body.get("error"), body.get("warning"), raw_outputs,
+        )
         return jsonify({"stored": stored}), 200
     return worker_action(scan_id, finish)
 
+
+def review_retry_batch():
+    return max(1, min(int(os.getenv("REVIEW_RETRY_BATCH", "3")), 20))
+
+
+@app.route("/v1/worker/reviews/retry", methods=["POST"])
+def worker_review_retry():
+    """Re-review alerts whose review didn't finish. Called on a schedule.
+
+    Uses the scan worker's secret. Each call handles a small batch so it
+    stays inside the host's request time limit.
+    """
+    if not worker_authorized():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        due = alerts_due_for_review(review_retry_batch())
+    except Exception:
+        app.logger.exception("Could not list alerts due for review")
+        return jsonify({"error": "Could not read from Supabase"}), 502
+
+    outcomes = {}
+    for row in due:
+        try:
+            _review, status = review_stored_alert(row["organization_id"], row["id"], row.get("source_payload") or {})
+            if status == "unavailable":
+                count_failed_review_attempt(row)
+        except Exception:
+            app.logger.exception("Retrying the review of alert %s failed", row["id"])
+            status = "error"
+        outcomes[status] = outcomes.get(status, 0) + 1
+    return jsonify({"retried": len(due), "outcomes": outcomes}), 200
 
 if __name__ == "__main__":
     app.run(

@@ -41,7 +41,7 @@ def get_user_client(access_token: str) -> Client:
 
 ALERT_COLUMNS = (
     "id, organization_id, source_event_id, title, severity, status, "
-    "source_payload, ai_review, created_at"
+    "source_payload, ai_review, review_status, reviewed_at, created_at"
 )
 FINDING_COLUMNS = (
     "id, organization_id, asset, title, cve_id, severity, status, details, created_at"
@@ -220,6 +220,66 @@ def store_pending_alert(organization_id: str, alert: dict):
     return row["alert_id"], bool(row.get("inserted", True))
 
 
+def alert_review_status(organization_id: str, alert_id: str) -> str | None:
+    """review_status of a stored alert ('pending', 'done', ...), or None."""
+    response = (
+        get_supabase_client()
+        .table("alerts")
+        .select("review_status")
+        .eq("id", alert_id)
+        .eq("organization_id", organization_id)
+        .limit(1)
+        .execute()
+    )
+    return response.data[0]["review_status"] if response.data else None
+
+
+MAX_REVIEW_ATTEMPTS = 5
+STUCK_PENDING = timedelta(minutes=10)
+
+
+def alerts_due_for_review(limit: int) -> list[dict]:
+    """Alerts, across every business, whose review should be tried again.
+
+    rate_limited ones; unavailable ones with fewer than MAX_REVIEW_ATTEMPTS
+    failed retries; and pending ones older than STUCK_PENDING (the request
+    reviewing them died). Least recently updated first, so a business that
+    is still over its hourly limit can't hold back everyone else.
+
+    Alerts without a stored description are skipped: those stored before
+    21 Nov 2026 kept only event_id and timestamp, and reviewing them would
+    send Groq an almost empty alert and save a meaningless "done" review.
+    """
+    stuck_before = (datetime.now(timezone.utc) - STUCK_PENDING).strftime("%Y-%m-%dT%H:%M:%SZ")
+    response = (
+        get_supabase_client()
+        .table("alerts")
+        .select("id, organization_id, source_payload, review_status, review_attempts")
+        .or_(
+            "review_status.eq.rate_limited,"
+            f"and(review_status.eq.unavailable,review_attempts.lt.{MAX_REVIEW_ATTEMPTS}),"
+            f"and(review_status.eq.pending,created_at.lt.{stuck_before})"
+        )
+        .not_.is_("source_payload->>description", "null")
+        .order("updated_at")
+        .limit(limit)
+        .execute()
+    )
+    return response.data or []
+
+
+def count_failed_review_attempt(row: dict):
+    """Record one more failed retry, so a review that always fails stops."""
+    (
+        get_supabase_client()
+        .table("alerts")
+        .update({"review_attempts": (row.get("review_attempts") or 0) + 1})
+        .eq("id", row["id"])
+        .eq("organization_id", row["organization_id"])
+        .execute()
+    )
+
+
 def record_review(organization_id: str, alert_id: str, review: dict, review_status: str):
     """Save the review outcome on a stored alert."""
     update = {"ai_review": review, "review_status": review_status}
@@ -253,22 +313,49 @@ def reviews_in_last_hour(organization_id: str) -> int:
     return response.count or 0
 
 
+def _open_finding_keys(client, organization_id: str, assets: set) -> set:
+    """(asset, title) of findings already open or acknowledged for these assets."""
+    response = (
+        client.table("vulnerability_findings")
+        .select("asset, title")
+        .eq("organization_id", organization_id)
+        .neq("status", "resolved")
+        .in_("asset", sorted(assets))
+        .execute()
+    )
+    return {(row["asset"], row["title"]) for row in response.data or []}
+
+
 def persist_findings(organization_id: str, findings: list[dict]) -> int:
-    rows = []
+    """Store new findings and return how many were added.
+
+    A finding already open for the same asset and title (from an earlier
+    scan) is skipped, so rescanning a website doesn't duplicate it.
+    """
+    rows, seen = [], set()
     for finding in findings:
-        rows.append({
+        row = {
             "organization_id": organization_id,
             "asset": str(finding.get("target") or finding.get("asset"))[:500],
             "title": str(finding["title"])[:500],
             "cve_id": finding.get("cve_id"),
             "severity": finding["severity"],
             "details": finding,
-        })
+        }
+        if (row["asset"], row["title"]) not in seen:
+            seen.add((row["asset"], row["title"]))
+            rows.append(row)
 
     if not rows:
         return 0
 
-    response = get_supabase_client().table("vulnerability_findings").insert(rows).execute()
+    client = get_supabase_client()
+    existing = _open_finding_keys(client, organization_id, {row["asset"] for row in rows})
+    rows = [row for row in rows if (row["asset"], row["title"]) not in existing]
+    if not rows:
+        return 0
+
+    response = client.table("vulnerability_findings").insert(rows).execute()
     if response.data is None or len(response.data) != len(rows):
         raise RuntimeError("Supabase did not confirm every vulnerability finding")
     return len(response.data)
