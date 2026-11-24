@@ -64,7 +64,7 @@ and TROJAN accepts the access token Supabase issues. The dashboard does this
 with `@supabase/supabase-js`; any client can do the same.
 
 1. **Sign up.** `supabase.auth.signUp({ email, password, options: { data: { organization_name } } })`.
-   The organization name is kept on the account until the first sign-in.
+   The organization name is kept on the account until the first sign in.
 2. **Verify the email.** If email confirmation is turned on in the Supabase
    project (Authentication settings), Supabase emails a confirmation link and
    `signUp` returns no session. The person must click the link before signing
@@ -74,9 +74,9 @@ with `@supabase/supabase-js`; any client can do the same.
    `refresh_token` and `expires_in`. Without supabase-js, call Supabase's Auth
    REST API: `POST https://<project>.supabase.co/auth/v1/token?grant_type=password`
    with header `apikey: <publishable key>` and body `{"email": "...", "password": "..."}`.
-4. **First sign-in creates the organization.** If the person belongs to no
+4. **First sign in creates the organization.** If the person belongs to no
    organization yet, the dashboard calls the Supabase function
-   `create_organization(p_name)` with the name from sign-up. It creates the
+   `create_organization(p_name)` with the name from sign up. It creates the
    organization and makes the person its `org_admin`. People added by an admin
    skip this: they're already members.
 5. **Find the organization ID.** Most TROJAN endpoints need `organization_id`.
@@ -84,7 +84,7 @@ with `@supabase/supabase-js`; any client can do the same.
    Supabase, where row-level security shows each person only their own:
    `supabase.from('organization_memberships').select('organization_id, role, organizations(name)')`.
 6. **Call TROJAN** with `Authorization: Bearer <access_token>`.
-7. **Refresh before the token expires.** Access tokens are short-lived (one hour
+7. **Refresh before the token expires.** Access tokens are short lived (one hour
    by default in Supabase; the project's JWT expiry setting decides). supabase-js
    refreshes them automatically: call `supabase.auth.getSession()` before each
    TROJAN request to get the current token, as the dashboard does. Without
@@ -114,7 +114,7 @@ the API only checks the access token, however it was obtained.
    (`POST /v1/admin/keys/{key_id}/revoke`). A revoked key stops working
    immediately with `401 Unauthorized`.
 
-Single-organization installs can instead set `TROJAN_INGESTION_API_KEY` and
+Single organization installs can instead set `TROJAN_INGESTION_API_KEY` and
 `TROJAN_ORGANIZATION_ID` on the backend.
 
 ### Worker secret
@@ -213,7 +213,7 @@ quickly: it won't clear until the oldest of the last 10 scans is more than 24
 hours old. Show the message to the user instead.
 
 **Handling 503:** a `503` with `alert_index` from `/v1/analyze` means storage
-failed part-way. Wait a few seconds and resend only `alerts[alert_index:]`;
+failed part way. Wait a few seconds and resend only `alerts[alert_index:]`;
 earlier alerts are already stored. Other `503`s mean the backend isn't
 configured: retrying won't help.
 
@@ -228,7 +228,7 @@ configured: retrying won't help.
   seconds. Scans take several minutes.
 - **Retry `502`/`503` with backoff** (e.g. 5 s, 10 s, 20 s), at most 3 times.
   On user endpoints, refresh the token before the first retry.
-- **Keep keys server-side:** ingest keys and the worker secret must never be
+- **Keep keys server side:** ingest keys and the worker secret must never be
   shipped in a browser app or committed to a repository.
 
 ## Endpoint summary
@@ -501,7 +501,7 @@ and triggers the `scan.yml` GitHub Actions workflow, the worker claims it
 }
 ```
 
-Scan `status`: `queued` → `running` → `completed` or `failed`. On a completed
+Scan `status`: `queued` => `running` => `completed` or `failed`. On a completed
 scan, `error` holds a warning if some tools didn't finish. Scans still queued
 or running after 45 minutes are marked failed when this list is read.
 
@@ -612,7 +612,7 @@ Notes:
 
 - **Ingest keys:** the raw `key` is in the create response only. Only its hash
   is stored, so copy it straight into the Wazuh integration config.
-- `admin_email` and platform-admin emails must belong to an existing account
+- `admin_email` and platform admin emails must belong to an existing account
   (404 otherwise). Member emails don't: unknown emails get an invite.
 - An admin can't remove their own platform-admin access (409).
 - Audit `action` values: `organization.created`, `membership.added`,
@@ -651,7 +651,7 @@ curl -X POST $API/v1/admin/organizations/5d1e7c0a-8b2f-4e6d-9a3c-2f1e0d9c8b7a/ke
 ```
 
 **Revoke a key:** `POST /v1/admin/keys/a4b3c2d1-e0f9-4a8b-8c7d-6e5f4a3b2c1d/revoke`
-→ `200 {"revoked": true}`. Revoking it again → `404 {"error": "Key not found or already revoked"}`.
+=> `200 {"revoked": true}`. Revoking it again → `404 {"error": "Key not found or already revoked"}`.
 
 **Add someone to any organization** (invites unknown emails):
 
@@ -827,7 +827,7 @@ revoke it in the Groq console and create a new one. `GET /v1/health` shows
 `"groq": "set"` when the backend has a key.
 
 ```
-Wazuh ──► TROJAN /v1/analyze ──► Groq chat completions ──► review saved on the alert ──► dashboard reads /v1/alerts
+Wazuh => TROJAN /v1/analyze => Groq chat completions => review saved on the alert => dashboard reads /v1/alerts
 ```
 
 | Setting | Default | Meaning |
