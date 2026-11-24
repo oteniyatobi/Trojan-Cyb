@@ -1,0 +1,1747 @@
+openapi: 3.1.0
+info:
+  title: TROJAN API
+  version: "1.1.0"
+  summary: Security monitoring and website scanning for SMEs.
+  description: |
+    The TROJAN backend is a Flask service (`backend/api.py`). In production,
+    Vercel routes every `/v1/*` request on the dashboard's domain to it.
+
+    ## Authentication
+
+    Every endpoint except `GET /v1/health` needs an `Authorization: Bearer <token>`
+    header. The token type depends on who is calling:
+
+    | Caller | Token | Security scheme |
+    | --- | --- | --- |
+    | Dashboard / admin site user | Supabase Auth access token (JWT) from the signed-in session | `userToken` |
+    | Wazuh integration or scanner pushing data | Per-business ingest key, or the single-install `TROJAN_INGESTION_API_KEY` | `ingestKey` |
+    | GitHub Actions scan worker | `SCAN_WORKER_SECRET` | `workerSecret` |
+
+    User requests run with the user's own token against Supabase, so row-level
+    security decides what each user can see. Ingest keys are stored only as
+    SHA-256 hashes, and the key decides the business: callers can never choose
+    an `organization_id` when pushing data.
+
+    Users get their access token by signing in with Supabase Auth; TROJAN has
+    no login endpoint. See API.md, "Authentication", for the full flow.
+
+    ## Real-time updates
+
+    There is no WebSocket or push API. Poll `GET /v1/scans` and
+    `GET /v1/alerts` (see API.md, "Real-time updates").
+
+    ## Roles
+
+    Organization roles are `org_admin`, `analyst` and `viewer`. TROJAN platform
+    admins (the `platform_admins` table) can use every `/v1/admin/*` endpoint.
+
+    ## Errors
+
+    Every error response is a JSON object with an `error` message. Some
+    `/v1/analyze` failures add progress fields (see that endpoint).
+
+    | Status | Meaning |
+    | --- | --- |
+    | 400 | Bad request (invalid JSON, invalid input to an admin or scan action) |
+    | 401 | Missing or invalid token |
+    | 403 | Signed in but not allowed (wrong role, not a member, not a platform admin) |
+    | 404 | Not found, or the path ID is not a valid UUID |
+    | 409 | Conflict (already exists, already running, wrong scan state) |
+    | 413 | Batch larger than 1000 items |
+    | 422 | Missing or invalid field |
+    | 429 | Daily scan limit reached (10 per organization per day) |
+    | 502 | Supabase, GitHub or Supabase Auth call failed. **An expired or invalid user token also returns 502** (Supabase rejects it): refresh the token and retry once. |
+    | 503 | Backend not configured (missing environment variables) or storage failed |
+  contact:
+    name: TROJAN team
+    url: https://github.com/oteniyatobi/Trojan-Cyb
+servers:
+  - url: https://trojan-cyb.vercel.app
+    description: Production (dashboard and API)
+  - url: https://trojan-cyb-admin.vercel.app
+    description: Admin site deployment (also serves the API; the scan worker uses it as a fallback)
+  - url: http://localhost:8000
+    description: Local development (`python api.py`, port set by API_PORT)
+
+tags:
+  - name: Health
+  - name: Ingestion
+    description: Data pushed in by Wazuh and scanners, authenticated with an ingest key.
+  - name: Dashboard
+    description: Alerts and findings read by signed-in users.
+  - name: Scans
+    description: Website scanning from the dashboard. Writes need the org_admin role.
+  - name: Team
+    description: Members of the caller's own organization.
+  - name: Admin
+    description: TROJAN platform-admin endpoints used by the admin site.
+  - name: Worker
+    description: Called only by GitHub Actions (the scan worker and the scheduled review retry).
+
+security:
+  - userToken: []
+
+paths:
+  /v1/health:
+    get:
+      tags: [Health]
+      summary: Report configuration status
+      description: Says whether the backend has the settings it needs. It does not contact Groq, Supabase or GitHub.
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Configuration status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              example:
+                status: ok
+                groq: set
+                supabase: configured
+                scanning: configured
+
+  /v1/analyze:
+    post:
+      tags: [Ingestion]
+      summary: Store and AI-review Wazuh/Suricata alerts
+      description: |
+        Stores each alert first (as `pending`), then asks Groq for a plain-language
+        review and records the outcome. Alerts are processed in order.
+
+        - An alert whose Wazuh `id` is already stored and reviewed (`done`) for
+          this business is not reviewed again: its result is `duplicate`. If
+          the earlier review didn't finish (`pending`, `unavailable` or
+          `rate_limited`), resending the alert retries the review.
+        - Groq receives only the stored fields (`AlertSourcePayload`), never
+          the raw Wazuh event.
+        - Reviews that don't finish are also retried every 15 minutes by
+          `POST /v1/worker/reviews/retry`.
+        - Severity starts from the Wazuh `rule.level` (0-3 low, 4-7 medium,
+          8-11 high, 12+ critical) and is replaced by the AI review's severity
+          when the review succeeds.
+        - Reviews are capped per business per hour (`GROQ_REVIEWS_PER_HOUR`,
+          default 100). Over the cap the result is `rate_limited` and the alert
+          is still stored.
+        - Only a fixed list of fields is kept from each alert (see
+          `AlertSourcePayload`); full log lines are dropped.
+      operationId: analyzeAlerts
+      security:
+        - ingestKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+            example:
+              alerts:
+                - id: "1732441234.12345"
+                  timestamp: "2026-11-24T08:15:02.000+0000"
+                  rule:
+                    id: "86601"
+                    level: 10
+                    description: "Suricata: Alert - ET SCAN Nmap Scripting Engine User-Agent Detected"
+                    groups: [ids, suricata]
+                    firedtimes: 3
+                  agent: { id: "001", name: shop-server }
+                  data:
+                    src_ip: 203.0.113.50
+                    dest_ip: 10.0.0.12
+                    dest_port: "80"
+                    proto: TCP
+                    alert: { signature_id: "2009358", signature: "ET SCAN Nmap Scripting Engine User-Agent Detected", severity: "1" }
+      responses:
+        "200":
+          description: Every alert was stored. Each result says what happened to its review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeResponse"
+              example:
+                results:
+                  - alert_id: 6f1c1d2e-3b4a-4c5d-8e9f-0a1b2c3d4e5f
+                    review_status: done
+                    llm_review:
+                      status: done
+                      attack_type: Reconnaissance
+                      severity: medium
+                      headline: Someone scanned your web server for weaknesses.
+                      what_happened: A computer on the internet probed your shop server with the Nmap scanning tool. This usually maps open services before an attack.
+                      why_it_matters: Scans often come before attempts to break in through any weak service they find.
+                      steps:
+                        - Check that only the services you need are open.
+                        - Keep the web server software up to date.
+                      when_to_escalate: Ask an expert if the scans continue or are followed by login attempts.
+        "400":
+          description: Body is not valid JSON
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Invalid JSON }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413":
+          description: More than 1000 alerts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: '"alerts" field must contain no more than 1000 items' }
+        "422":
+          description: "`alerts` missing, not a list, empty, or contains a non-object"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: 'Missing "alerts" field in request body' }
+        "503":
+          description: |
+            Ingestion is not configured, the ingest-key lookup failed, or storage
+            failed part-way. Partial failures include how far processing got, so
+            the caller can resend only the alerts from `alert_index` on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalyzePartialFailure" }
+              example:
+                error: Supabase storage failed
+                alert_index: 2
+                stored_count: 2
+                results: []
+
+  /v1/findings:
+    post:
+      tags: [Ingestion]
+      summary: Store scanner findings
+      description: |
+        Stores vulnerability findings for the business that owns the ingest key.
+        The whole finding object is also kept in `details`.
+
+        Duplicates are skipped: a finding with the same `target`/`asset` and
+        `title` as another in the batch, or as a finding already open or
+        acknowledged for this business, is not stored again. `stored` counts
+        only new findings, so it can be lower than the number sent, or 0.
+      operationId: ingestFindings
+      security:
+        - ingestKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FindingsRequest"
+            example:
+              findings:
+                - tool: nuclei
+                  target: https://shop.example.com/.env
+                  finding_type: web_vulnerability
+                  severity: high
+                  title: Exposed .env file
+                  description: The site serves its environment file, which can contain passwords and API keys.
+                  evidence: https://shop.example.com/.env
+                  cve_id: null
+                  found_at: "2026-11-24T08:20:00Z"
+      responses:
+        "201":
+          description: Request accepted. `stored` is how many new findings were added (duplicates are skipped).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoredCount" }
+              example: { stored: 1 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413":
+          description: More than 1000 findings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: findings must contain no more than 1000 items }
+        "422":
+          description: |
+            Body has no `findings` list (this includes invalid JSON), the list is
+            empty, or a finding lacks `target`/`asset`, `title` or a valid `severity`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Each finding must include a valid severity }
+        "503":
+          description: Ingestion not configured, key lookup failed, or storage failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Supabase storage failed }
+    get:
+      tags: [Dashboard]
+      summary: List an organization's findings
+      description: Newest first. Row-level security returns nothing for organizations the user isn't a member of.
+      operationId: listFindings
+      parameters:
+        - $ref: "#/components/parameters/OrganizationIdQuery"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Findings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [findings]
+                properties:
+                  findings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Finding" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "422":
+          $ref: "#/components/responses/InvalidOrganizationId"
+        "502": { $ref: "#/components/responses/SupabaseReadFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/alerts:
+    get:
+      tags: [Dashboard]
+      summary: List an organization's alerts
+      description: Newest first, with each alert's AI review. Row-level security limits results to the user's organizations.
+      operationId: listAlerts
+      parameters:
+        - $ref: "#/components/parameters/OrganizationIdQuery"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alerts]
+                properties:
+                  alerts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Alert" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "422": { $ref: "#/components/responses/InvalidOrganizationId" }
+        "502": { $ref: "#/components/responses/SupabaseReadFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/alerts/{alert_id}:
+    get:
+      tags: [Dashboard]
+      summary: Get one alert
+      operationId: getAlert
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The alert
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alert" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "404":
+          description: Not a UUID, doesn't exist, or the user can't see it
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Alert not found }
+        "502": { $ref: "#/components/responses/SupabaseReadFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/scans:
+    get:
+      tags: [Scans]
+      summary: List websites and recent scans
+      description: |
+        Returns the organization's websites and its 50 most recent scans.
+        Scans still queued or running after 45 minutes are marked `failed`
+        ("The scan timed out.") before the list is returned.
+      operationId: listScans
+      parameters:
+        - $ref: "#/components/parameters/OrganizationIdQuery"
+      responses:
+        "200":
+          description: Websites and scans
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [targets, scans]
+                properties:
+                  targets:
+                    type: array
+                    items: { $ref: "#/components/schemas/ScanTarget" }
+                  scans:
+                    type: array
+                    items: { $ref: "#/components/schemas/Scan" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "422":
+          description: organization_id missing or not a UUID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: organization_id must be a UUID }
+        "502": { $ref: "#/components/responses/ScanRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+    post:
+      tags: [Scans]
+      summary: Start a website scan
+      description: |
+        Queues a scan and triggers the `scan.yml` GitHub Actions workflow, which
+        runs Nuclei and Nmap and reports back through the Worker endpoints.
+        Needs `org_admin`. The website must be confirmed first. Only one scan per
+        website can be queued or running, and each organization gets 10 scans per day.
+      operationId: startScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_id]
+              properties:
+                target_id: { type: string, format: uuid }
+            example: { target_id: 0b6d3c1a-2f4e-4a8b-9c7d-1e2f3a4b5c6d }
+      responses:
+        "201":
+          description: Scan queued and worker triggered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Scan" }
+        "400":
+          description: The website hasn't been confirmed for scanning
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Confirm you own this website or have permission to scan it. }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/OrgAdminOnly" }
+        "404": { $ref: "#/components/responses/WebsiteNotFound" }
+        "409":
+          description: |
+            A scan of this website is already queued or running, or the stored
+            address fails the same checks as when adding a website (for
+            example a row inserted directly in Supabase). Remove the website
+            and add it again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                running:
+                  value: { error: A scan of this website is already running. }
+                invalidAddress:
+                  value: { error: This website's address isn't valid. Remove it and add it again. }
+        "422":
+          description: target_id missing or not a UUID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: target_id must be a UUID }
+        "429":
+          description: The organization has started 10 scans in the last 24 hours
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: "Limit reached: 10 scans per day." }
+        "502":
+          description: GitHub refused the workflow dispatch, or another upstream call failed. The scan is marked failed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Couldn't start the scan worker. }
+        "503":
+          description: GITHUB_DISPATCH_TOKEN or Supabase settings are missing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Scanning isn't set up yet (GITHUB_DISPATCH_TOKEN is missing). }
+
+  /v1/scan-targets:
+    post:
+      tags: [Scans]
+      summary: Add a website to scan
+      description: |
+        Needs `org_admin` and `confirmed: true`, the caller's statement that the
+        organization owns the website or has permission to scan it. The URL is
+        reduced to its origin (scheme, host and port). IP addresses, single-label
+        names, `.local`/`.internal`/`.localhost` hosts and any host that resolves
+        to a non-public address are refused.
+      operationId: addScanTarget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [organization_id, url, confirmed]
+              properties:
+                organization_id: { type: string, format: uuid }
+                url:
+                  type: string
+                  description: Website address. `https://` is assumed when no scheme is given.
+                  examples: [shop.example.com]
+                confirmed:
+                  type: boolean
+                  const: true
+                  description: Must be exactly `true`.
+            example:
+              organization_id: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+              url: shop.example.com
+              confirmed: true
+      responses:
+        "201":
+          description: Website added and marked confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanTarget" }
+        "400":
+          description: |
+            Not confirmed, invalid address, IP address, private name or not
+            publicly reachable. Addresses the database rejects (for example
+            non-ASCII or underscore names) also return 400.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: That website isn't reachable on the public internet. }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/OrgAdminOnly" }
+        "409":
+          description: Website already added for this organization
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: This website has already been added. }
+        "422":
+          description: organization_id missing or not a UUID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: organization_id must be a UUID }
+        "502": { $ref: "#/components/responses/ScanRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/scan-targets/{target_id}/confirm:
+    post:
+      tags: [Scans]
+      summary: Confirm permission to scan an existing website
+      description: For websites added before confirmation was required, or not yet confirmed. Needs `org_admin` or TROJAN platform admin. Confirming an already-confirmed website returns it unchanged.
+      operationId: confirmScanTarget
+      parameters:
+        - $ref: "#/components/parameters/TargetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmed]
+              properties:
+                confirmed: { type: boolean, const: true }
+            example: { confirmed: true }
+      responses:
+        "200":
+          description: Website is confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanTarget" }
+        "400":
+          description: "`confirmed` was not `true`"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Confirm you own this website or have permission to scan it. }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/OrgAdminOnly" }
+        "404": { $ref: "#/components/responses/WebsiteNotFound" }
+        "502": { $ref: "#/components/responses/ScanRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/scan-targets/{target_id}:
+    delete:
+      tags: [Scans]
+      summary: Remove a website
+      description: Needs `org_admin`.
+      operationId: removeScanTarget
+      parameters:
+        - $ref: "#/components/parameters/TargetId"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [removed]
+                properties:
+                  removed: { type: boolean, const: true }
+              example: { removed: true }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/OrgAdminOnly" }
+        "404": { $ref: "#/components/responses/WebsiteNotFound" }
+        "502": { $ref: "#/components/responses/ScanRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/organizations/{organization_id}/members:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationIdPath"
+    get:
+      tags: [Team]
+      summary: List members of your organization
+      description: Any member of the organization can list it.
+      operationId: listMembers
+      responses:
+        "200":
+          description: Members, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members]
+                properties:
+                  members:
+                    type: array
+                    items: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/NotAMember" }
+        "404": { $ref: "#/components/responses/OrganizationNotFound" }
+        "502": { $ref: "#/components/responses/MemberRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+    post:
+      tags: [Team]
+      summary: Add someone to your organization
+      description: |
+        Needs `org_admin`. If no TROJAN account uses the email, Supabase sends an
+        invite email (`invited: true`) and the new account is added straight away.
+      operationId: addMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddMemberRequest" }
+            example: { email: thandi@example.com, role: analyst }
+      responses:
+        "201":
+          description: Member added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AddMemberResponse" }
+              example:
+                user_id: 3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a
+                email: thandi@example.com
+                role: analyst
+                invited: true
+        "400": { $ref: "#/components/responses/InvalidMember" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403":
+          description: Not a member, or not an org_admin
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Only organization admins can add people }
+        "404": { $ref: "#/components/responses/OrganizationNotFound" }
+        "409": { $ref: "#/components/responses/AlreadyMember" }
+        "502":
+          description: Invite email couldn't be sent, or another upstream call failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Couldn't send an invite to that email. Try again later. }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/overview:
+    get:
+      tags: [Admin]
+      summary: Platform-wide counts
+      operationId: adminOverview
+      responses:
+        "200":
+          description: Counts across all organizations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminOverview" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/organizations:
+    get:
+      tags: [Admin]
+      summary: List every organization
+      description: Each organization comes with its members, alert count and ingest keys (never the raw key values).
+      operationId: adminListOrganizations
+      responses:
+        "200":
+          description: Organizations, sorted by name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [organizations]
+                properties:
+                  organizations:
+                    type: array
+                    items: { $ref: "#/components/schemas/AdminOrganization" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+    post:
+      tags: [Admin]
+      summary: Create an organization
+      description: Optionally makes an existing TROJAN account its `org_admin`. Recorded in the audit log.
+      operationId: adminCreateOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                admin_email:
+                  type: string
+                  format: email
+                  description: Must belong to an existing account. Leave empty for no admin.
+            example: { name: Kigali Coffee Co, admin_email: owner@kigalicoffee.example }
+      responses:
+        "201":
+          description: Organization created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Organization" }
+        "400":
+          description: Name empty or longer than 120 characters
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Organization name must be 1 to 120 characters }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404": { $ref: "#/components/responses/NoAccountForEmail" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/organizations/{organization_id}/members:
+    post:
+      tags: [Admin]
+      summary: Add a member to any organization
+      description: Same behaviour as the Team endpoint (invites unknown emails), for any organization.
+      operationId: adminAddMember
+      parameters:
+        - $ref: "#/components/parameters/OrganizationIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddMemberRequest" }
+      responses:
+        "201":
+          description: Member added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AddMemberResponse" }
+        "400": { $ref: "#/components/responses/InvalidMember" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404": { $ref: "#/components/responses/OrganizationNotFound" }
+        "409": { $ref: "#/components/responses/AlreadyMember" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/organizations/{organization_id}/members/{user_id}:
+    patch:
+      tags: [Admin]
+      summary: Change a member's role
+      operationId: adminSetMemberRole
+      parameters:
+        - $ref: "#/components/parameters/OrganizationIdPath"
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/Role" }
+            example: { role: org_admin }
+      responses:
+        "200":
+          description: Role changed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [role]
+                properties:
+                  role: { $ref: "#/components/schemas/Role" }
+        "400":
+          description: Invalid role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Role must be org_admin, analyst or viewer }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404":
+          description: An ID is not a UUID, or the user isn't a member
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: That user is not a member of this organization }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/organizations/{organization_id}/keys:
+    post:
+      tags: [Admin]
+      summary: Create an ingest key
+      description: |
+        Creates a per-business key for `/v1/analyze` and `/v1/findings`.
+        **The raw `key` is returned only in this response.** Only its SHA-256
+        hash is stored, so it can't be shown again.
+      operationId: adminCreateIngestKey
+      parameters:
+        - $ref: "#/components/parameters/OrganizationIdPath"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, maxLength: 120, description: Free text, e.g. which Wazuh server uses it. }
+            example: { label: Main office Wazuh }
+      responses:
+        "201":
+          description: Key created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NewIngestKey" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404": { $ref: "#/components/responses/OrganizationNotFound" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/keys/{key_id}/revoke:
+    post:
+      tags: [Admin]
+      summary: Revoke an ingest key
+      description: The key stops working immediately. Recorded in the audit log.
+      operationId: adminRevokeIngestKey
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean, const: true }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404":
+          description: Not a UUID, doesn't exist or already revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Key not found or already revoked }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: List every user account
+      operationId: adminListUsers
+      responses:
+        "200":
+          description: Users, sorted by email
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/AdminUser" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/platform-admins:
+    get:
+      tags: [Admin]
+      summary: List TROJAN platform admins
+      operationId: adminListPlatformAdmins
+      responses:
+        "200":
+          description: Platform admins
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [admins]
+                properties:
+                  admins:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlatformAdmin" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+    post:
+      tags: [Admin]
+      summary: Make an account a platform admin
+      description: The account must already exist. Recorded in the audit log.
+      operationId: adminAddPlatformAdmin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id]
+                properties:
+                  user_id: { type: string, format: uuid }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404": { $ref: "#/components/responses/NoAccountForEmail" }
+        "409":
+          description: Already a platform admin
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: That account is already a TROJAN admin }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/platform-admins/{user_id}:
+    delete:
+      tags: [Admin]
+      summary: Remove a platform admin
+      description: Admins can't remove themselves. Recorded in the audit log.
+      operationId: adminRemovePlatformAdmin
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [removed]
+                properties:
+                  removed: { type: boolean, const: true }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "404":
+          description: Not a UUID or not a platform admin
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: That account is not a TROJAN admin }
+        "409":
+          description: Tried to remove yourself
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: You can't remove your own admin access }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/admin/audit:
+    get:
+      tags: [Admin]
+      summary: Read the audit log
+      description: Newest first. Covers organization, membership, ingest-key and platform-admin changes made through the API.
+      operationId: adminAuditLog
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+        "401": { $ref: "#/components/responses/SignInRequired" }
+        "403": { $ref: "#/components/responses/PlatformAdminOnly" }
+        "502": { $ref: "#/components/responses/AdminRequestFailed" }
+        "503": { $ref: "#/components/responses/NotConfigured" }
+
+  /v1/worker/scans/{scan_id}/start:
+    post:
+      tags: [Worker]
+      summary: Claim a queued scan
+      description: Moves the scan from `queued` to `running` and returns the website to scan.
+      operationId: workerStartScan
+      security:
+        - workerSecret: []
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      responses:
+        "200":
+          description: Scan claimed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, hostname]
+                properties:
+                  url: { type: string, format: uri }
+                  hostname: { type: string }
+              example: { url: https://shop.example.com, hostname: shop.example.com }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ScanNotFound" }
+        "409":
+          description: |
+            Scan isn't queued, its website was removed, or the website's stored
+            address fails validation. In the last two cases the scan is marked
+            failed with that reason.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Scan is not waiting to run. }
+        "502": { $ref: "#/components/responses/WorkerRequestFailed" }
+
+  /v1/worker/scans/{scan_id}/finish:
+    post:
+      tags: [Worker]
+      summary: Report scan results
+      description: |
+        Stores the findings against the scan and marks it `completed`, or `failed`
+        when `error` is set. A `warning` (e.g. one tool didn't finish) is saved in
+        the scan's `error` field but the scan still counts as completed.
+
+        Optional `raw_outputs` carry each tool's raw output (Nmap XML, Nuclei
+        JSONL, Wapiti JSON), gzipped and base64-encoded. They are saved to the
+        private `scan-raw-output` storage bucket at
+        `<organization_id>/<scan_id>/<name>.gz`, and that tool's findings get
+        `raw_output_ref` pointing there. A failed upload is logged and skipped;
+        it never fails the scan.
+
+        Findings already open for the same asset and title are not stored
+        again. The scan's `findings_count` is how many the scan found;
+        `stored` is how many were new.
+      operationId: workerFinishScan
+      security:
+        - workerSecret: []
+      parameters:
+        - $ref: "#/components/parameters/ScanId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                findings:
+                  type: array
+                  maxItems: 1000
+                  items: { $ref: "#/components/schemas/FindingInput" }
+                error:
+                  type: [string, "null"]
+                  description: Set when no scanner finished; the scan is marked failed.
+                warning:
+                  type: [string, "null"]
+                  description: Set when some scanners didn't finish.
+                raw_outputs:
+                  type: array
+                  maxItems: 5
+                  items: { $ref: "#/components/schemas/RawOutput" }
+            example:
+              findings: []
+              error: null
+              warning: nmap did not finish.
+              raw_outputs:
+                - tool: nuclei
+                  name: nuclei.jsonl
+                  content: H4sIAAAAAAAAA6uuBQBDv6ajAgAAAA==
+      responses:
+        "200":
+          description: Results stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoredCount" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ScanNotFound" }
+        "409":
+          description: Scan isn't running
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Scan is not running. }
+        "422":
+          description: |
+            `findings` isn't a list, has more than 1000 items (422 here, not
+            413), a finding is invalid, or `raw_outputs` is invalid (not a list,
+            more than 5 items, an item missing `tool`/`name`/`content`, a
+            disallowed name or content over 2,000,000 characters).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: findings must be a list }
+        "502": { $ref: "#/components/responses/WorkerRequestFailed" }
+
+  /v1/worker/reviews/retry:
+    post:
+      tags: [Worker]
+      summary: Retry AI reviews that didn't finish
+      description: |
+        Called every 15 minutes by the `review-retry.yml` GitHub Actions
+        workflow, using the worker secret. No request body.
+
+        Picks up to `REVIEW_RETRY_BATCH` alerts (default 3, max 20) across all
+        businesses, least recently updated first:
+
+        - `rate_limited` alerts
+        - `unavailable` alerts with fewer than 5 failed retries
+        - `pending` alerts older than 10 minutes (the request reviewing them died)
+
+        Alerts with no stored description (stored before 21 Nov 2026) are
+        skipped. Each alert is reviewed within its business's hourly limit;
+        a retry that is `unavailable` again adds one to the alert's failed
+        attempts, so it stops after 5.
+      operationId: workerRetryReviews
+      security:
+        - workerSecret: []
+      responses:
+        "200":
+          description: Batch processed. Counts only; no alert details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [retried, outcomes]
+                properties:
+                  retried: { type: integer, description: Alerts picked up in this batch. }
+                  outcomes:
+                    type: object
+                    description: Count per result. Keys are review statuses, plus `error` when saving a review failed.
+                    additionalProperties: { type: integer }
+                    propertyNames:
+                      enum: [done, unavailable, rate_limited, error]
+              example: { retried: 3, outcomes: { done: 2, rate_limited: 1 } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502":
+          description: Couldn't list the alerts due for review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: Could not read from Supabase }
+
+components:
+  securitySchemes:
+    userToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase Auth access token of the signed-in user (`session.access_token`).
+    ingestKey:
+      type: http
+      scheme: bearer
+      description: Per-business ingest key created on the admin site, or the single-install `TROJAN_INGESTION_API_KEY`.
+    workerSecret:
+      type: http
+      scheme: bearer
+      description: "`SCAN_WORKER_SECRET`, shared between the backend and the GitHub Actions scan worker."
+
+  parameters:
+    OrganizationIdQuery:
+      name: organization_id
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    OrganizationIdPath:
+      name: organization_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserIdPath:
+      name: user_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TargetId:
+      name: target_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ScanId:
+      name: scan_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum rows to return. Clamped to 1-1000; a non-number falls back to 200.
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 200 }
+
+  responses:
+    Unauthorized:
+      description: Missing, unknown or revoked token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Unauthorized }
+    SignInRequired:
+      description: No user token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Sign in required }
+    PlatformAdminOnly:
+      description: Signed in but not a TROJAN platform admin
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: TROJAN platform admin access required }
+    OrgAdminOnly:
+      description: Not an org_admin of the website's organization
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Only organization admins can do this. }
+    NotAMember:
+      description: Signed in but not a member of the organization
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: You are not a member of this organization }
+    OrganizationNotFound:
+      description: Not a UUID or no such organization
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Organization not found }
+    WebsiteNotFound:
+      description: Not a UUID, doesn't exist, or the user can't see it
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Website not found. }
+    ScanNotFound:
+      description: scan_id is not a UUID
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Scan not found }
+    InvalidOrganizationId:
+      description: organization_id missing or not a UUID
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: A valid organization_id is required }
+    InvalidMember:
+      description: Invalid email or role
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Enter a valid email address }
+    AlreadyMember:
+      description: The person is already in the organization
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: thandi@example.com is already in this organization }
+    NoAccountForEmail:
+      description: No TROJAN account uses that email
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: No TROJAN account uses that email. Ask them to sign up first. }
+    NotConfigured:
+      description: Required backend settings are missing
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be configured on the backend }
+    SupabaseReadFailed:
+      description: Supabase query failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Could not read from Supabase }
+    ScanRequestFailed:
+      description: Unexpected upstream failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Scan request failed }
+    MemberRequestFailed:
+      description: Unexpected upstream failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Member request failed }
+    AdminRequestFailed:
+      description: Unexpected upstream failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Admin request failed }
+    WorkerRequestFailed:
+      description: Unexpected upstream failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Scan worker request failed }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    Severity:
+      type: string
+      enum: [low, medium, high, critical]
+
+    Role:
+      type: string
+      enum: [org_admin, analyst, viewer]
+
+    Timestamp:
+      type: string
+      format: date-time
+
+    Health:
+      type: object
+      required: [status, groq, supabase, scanning]
+      properties:
+        status: { type: string, const: ok }
+        groq: { type: string, enum: [set, not set] }
+        supabase: { type: string, enum: [configured, not configured] }
+        scanning:
+          type: string
+          enum: [configured, not configured]
+          description: Both GITHUB_DISPATCH_TOKEN and SCAN_WORKER_SECRET are set.
+
+    AnalyzeRequest:
+      type: object
+      required: [alerts]
+      properties:
+        alerts:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { $ref: "#/components/schemas/WazuhAlert" }
+
+    WazuhAlert:
+      type: object
+      description: |
+        A Wazuh alert as written to `alerts.json`. Any JSON object is accepted;
+        these are the fields TROJAN reads. `id` is used to detect duplicates.
+      additionalProperties: true
+      properties:
+        id: { type: [string, number] }
+        timestamp: { type: string }
+        location: { type: string }
+        description: { type: string, description: Used as the title when rule.description is missing. }
+        rule:
+          type: object
+          properties:
+            id: { type: string }
+            level: { type: integer, description: Sets the initial severity. }
+            description: { type: string }
+            groups: { type: array, items: { type: string } }
+            firedtimes: { type: integer }
+        agent:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+        manager:
+          type: object
+          properties:
+            name: { type: string }
+        decoder:
+          type: object
+          properties:
+            name: { type: string }
+        data:
+          type: object
+          description: Suricata or log fields. Both `src_ip` and `srcip` styles are read.
+          properties:
+            src_ip: { type: string }
+            src_port: { type: [string, integer] }
+            dest_ip: { type: string }
+            dest_port: { type: [string, integer] }
+            proto: { type: string }
+            alert:
+              type: object
+              properties:
+                signature_id: { type: [string, integer] }
+                signature: { type: string }
+                severity: { type: [string, integer] }
+
+    AiReview:
+      type: object
+      description: The Groq review saved on the alert. Its shape depends on `status`.
+      properties:
+        status: { type: string, enum: [done, unavailable, rate_limited] }
+        attack_type:
+          type: string
+          enum: [Benign, DoS, DDoS, Reconnaissance, Brute force FTP, Brute force SSH, Web brute force, Cross site scripting, SQL injection, Botnet, Infiltration, Heartbleed, Exploits, Fuzzers, Generic, Backdoor, Shellcode, Worms, Analysis, Other or unknown, Other]
+        severity: { $ref: "#/components/schemas/Severity" }
+        headline: { type: string }
+        what_happened: { type: string }
+        why_it_matters: { type: string }
+        steps: { type: array, items: { type: string } }
+        when_to_escalate: { type: string }
+        problems:
+          type: array
+          items: { type: string }
+          description: Present when status is `unavailable`.
+        limit_per_hour:
+          type: integer
+          description: Present when status is `rate_limited`.
+
+    AnalyzeResult:
+      type: object
+      required: [alert_id, review_status]
+      properties:
+        alert_id: { type: string, format: uuid }
+        review_status:
+          type: string
+          enum: [done, unavailable, rate_limited, duplicate]
+        llm_review:
+          $ref: "#/components/schemas/AiReview"
+          description: Absent for duplicates.
+
+    AnalyzeResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/AnalyzeResult" }
+
+    AnalyzePartialFailure:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        alert_index: { type: integer, description: Index of the alert that failed. }
+        stored_count: { type: integer, description: Alerts stored before the failure (includes the failing one if it was stored but its review wasn't saved). }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/AnalyzeResult" }
+
+    AlertSourcePayload:
+      type: object
+      description: The only alert fields TROJAN keeps. Empty fields are left out.
+      properties:
+        event_id: { type: string }
+        timestamp: { type: string }
+        rule_id: { type: string }
+        rule_level: { type: integer }
+        rule_groups: { type: array, items: { type: string } }
+        fired_times: { type: integer }
+        description: { type: string }
+        signature_id: { type: [string, integer] }
+        signature: { type: string }
+        suricata_severity: { type: [string, integer] }
+        src_ip: { type: string }
+        src_port: { type: [string, integer] }
+        dest_ip: { type: string }
+        dest_port: { type: [string, integer] }
+        proto: { type: string }
+        agent_id: { type: string }
+        agent_name: { type: string }
+        manager_name: { type: string }
+        decoder_name: { type: string }
+        location: { type: string }
+
+    Alert:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        source_event_id: { type: [string, "null"] }
+        title: { type: string, description: The AI headline once reviewed, otherwise the rule description. }
+        severity: { $ref: "#/components/schemas/Severity" }
+        status:
+          type: string
+          enum: [open, acknowledged, resolved]
+          description: The only field signed-in users may change (directly in Supabase; there's no API endpoint for it yet).
+        source_payload: { $ref: "#/components/schemas/AlertSourcePayload" }
+        ai_review: { $ref: "#/components/schemas/AiReview" }
+        review_status:
+          type: string
+          enum: [pending, done, unavailable, rate_limited]
+          description: Where the AI review stands. Older alerts may only have `ai_review.status`.
+        reviewed_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the review finished.
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    FindingInput:
+      type: object
+      description: |
+        The unified finding format all TROJAN scanners produce. Only `title`,
+        `severity` and `target` (or `asset`) are required; the whole object is
+        kept in the stored finding's `details`.
+      required: [title, severity]
+      anyOf:
+        - required: [target]
+        - required: [asset]
+      additionalProperties: true
+      properties:
+        target: { type: string, description: URL, host or file the finding is about. }
+        asset: { type: string, description: Alternative to `target`. }
+        title: { type: string, maxLength: 500 }
+        severity: { $ref: "#/components/schemas/Severity" }
+        tool: { type: string, examples: [nuclei, nmap, wapiti, osv-scanner] }
+        finding_type: { type: string, examples: [web_vulnerability, open_port, vulnerable_dependency] }
+        description: { type: string }
+        evidence: { type: string }
+        cve_id: { type: [string, "null"] }
+        raw_output_ref:
+          type: [string, "null"]
+          description: Set by the backend for website scans when raw output was saved, e.g. `scan-raw-output/<org>/<scan>/nuclei.jsonl.gz`.
+        found_at: { $ref: "#/components/schemas/Timestamp" }
+
+    FindingsRequest:
+      type: object
+      required: [findings]
+      properties:
+        findings:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { $ref: "#/components/schemas/FindingInput" }
+
+    RawOutput:
+      type: object
+      required: [tool, name, content]
+      properties:
+        tool: { type: string, examples: [nuclei, nmap, wapiti] }
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9_.-]{0,39}$"
+          description: File name, stored as `<name>.gz`.
+        content:
+          type: string
+          maxLength: 2000000
+          description: Gzipped output, base64-encoded.
+
+    StoredCount:
+      type: object
+      required: [stored]
+      properties:
+        stored: { type: integer, minimum: 0 }
+
+    Finding:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        asset: { type: string }
+        title: { type: string }
+        cve_id: { type: [string, "null"] }
+        severity: { $ref: "#/components/schemas/Severity" }
+        status: { type: string, enum: [open, acknowledged, resolved] }
+        details:
+          $ref: "#/components/schemas/FindingInput"
+          description: The finding as submitted. Findings from website scans also carry `scan_id`.
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    ScanTarget:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        url: { type: string, format: uri, description: Origin only, e.g. https://shop.example.com }
+        hostname: { type: string }
+        verified_at:
+          type: [string, "null"]
+          format: date-time
+          description: When an org admin confirmed permission to scan. Scans need this set.
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    Scan:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        target_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running, completed, failed] }
+        findings_count:
+          type: [integer, "null"]
+          description: Findings the scan reported, including ones already open from an earlier scan (which aren't stored twice).
+        error:
+          type: [string, "null"]
+          description: Failure reason, or a warning on a completed scan (e.g. "nmap did not finish.").
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+
+    Member:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: [string, "null"] }
+        role: { $ref: "#/components/schemas/Role" }
+        joined_at: { $ref: "#/components/schemas/Timestamp" }
+
+    AddMemberRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+        role:
+          $ref: "#/components/schemas/Role"
+          default: viewer
+
+    AddMemberResponse:
+      type: object
+      required: [user_id, email, role, invited]
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        invited: { type: boolean, description: True when a new account was invited by email. }
+
+    Organization:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    IngestKey:
+      type: object
+      description: An ingest key's metadata. The raw key is never returned after creation.
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        label: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        revoked_at: { type: [string, "null"], format: date-time }
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+          description: Updated at most every 5 minutes.
+
+    NewIngestKey:
+      type: object
+      required: [id, label, created_at, key]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+        key: { type: string, description: The raw key. Shown only once. }
+
+    AdminOrganization:
+      allOf:
+        - $ref: "#/components/schemas/Organization"
+        - type: object
+          properties:
+            members:
+              type: array
+              items:
+                allOf:
+                  - $ref: "#/components/schemas/Member"
+                  - type: object
+                    properties:
+                      display_name: { type: string }
+            alert_count: { type: integer }
+            keys:
+              type: array
+              items: { $ref: "#/components/schemas/IngestKey" }
+
+    AdminOverview:
+      type: object
+      properties:
+        organizations: { type: integer }
+        users: { type: integer }
+        alerts: { type: integer }
+        open_critical_alerts: { type: integer }
+        active_keys: { type: integer }
+        by_organization:
+          type: array
+          items:
+            type: object
+            properties:
+              organization_id: { type: string, format: uuid }
+              organization: { type: string }
+              alerts: { type: integer }
+              latest_alert:
+                type: [object, "null"]
+                properties:
+                  title: { type: string }
+                  severity: { $ref: "#/components/schemas/Severity" }
+                  created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    AdminUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: [string, "null"] }
+        created_at: { type: [string, "null"] }
+        last_sign_in_at: { type: [string, "null"] }
+        platform_admin: { type: boolean }
+        organizations:
+          type: array
+          items:
+            type: object
+            properties:
+              organization_id: { type: string, format: uuid }
+              organization: { type: string }
+              role: { $ref: "#/components/schemas/Role" }
+
+    PlatformAdmin:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: [string, "null"] }
+        added_at: { $ref: "#/components/schemas/Timestamp" }
+        added_by: { type: [string, "null"], format: uuid }
+        added_by_email: { type: [string, "null"] }
+
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: [string, "null"], format: uuid }
+        organization: { type: [string, "null"] }
+        actor_id: { type: string, format: uuid }
+        actor_email: { type: [string, "null"] }
+        action:
+          type: string
+          enum: [organization.created, membership.added, membership.role_changed, ingest_key.created, ingest_key.revoked, platform_admin.added, platform_admin.removed]
+        entity_type: { type: string, enum: [organization, membership, ingest_key, user] }
+        entity_id: { type: string }
+        details: { type: object, additionalProperties: true }
+        created_at: { $ref: "#/components/schemas/Timestamp" }
