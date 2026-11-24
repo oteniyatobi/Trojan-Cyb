@@ -115,27 +115,16 @@ def main(scan_id):
     print(f"::add-mask::{target['url']}")
     print(f"::add-mask::{target['hostname']}")
 
-    findings, failed = [], []
-    tools = {
-        "Nuclei": lambda: run_nuclei_scan(target["url"], ("-as", "-rl", "50"), timeout=900),
-        "Nmap": lambda: run_nmap_scan(target["hostname"]),
-    }
-    for name, scan in tools.items():
-        try:
-            tool_findings, problem = run_tool(name, scan)
-        except Exception:
-            tool_findings, problem = [], True
-        findings.extend(tool_findings)
-        if problem:
-            failed.append(name)
+    results, failures = run_tools(target)
+    findings = [item for result in results for item in result.findings]
+    raw_outputs, skipped = pack_raw_outputs(results)
+    error, warning = summarize(results, failures, len(TOOLS))
+    if skipped:
+        note = f"Raw output not kept for {', '.join(skipped)} (too large)."
+        warning = f"{warning} {note}" if warning else note
 
-    error = "No scanner finished." if len(failed) == len(tools) and not findings else None
-    warning = f"{', '.join(failed)} did not finish." if failed and not error else None
-    result = call(
-        f"{scan_id}/finish",
-        {"findings": findings, "error": error, "warning": warning},
-        avoid_host=target["hostname"],
-    )
+    body = {"findings": findings, "error": error, "warning": warning, "raw_outputs": raw_outputs}
+    result = call(f"{scan_id}/finish", body, avoid_host=target["hostname"])
     print(f"stored {result['stored']} findings")
 
 

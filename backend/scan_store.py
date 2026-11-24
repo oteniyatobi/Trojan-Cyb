@@ -222,6 +222,7 @@ def start_scan(token: str, target_id: str) -> dict:
     target = _visible_target(token, target_id)
     if not target["verified_at"]:
         raise ScanError("Confirm you own this website or have permission to scan it.")
+    _check_target(target)
     organization_id = target["organization_id"]
     _expire_stale_scans(organization_id)
     service = get_supabase_client()
