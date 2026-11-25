@@ -34,6 +34,7 @@ function Login({ theme, onToggleTheme, onLogin, error, adminMode = false }) {
         email,
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/`,
           data: { organization_name: organizationName.trim() },
         },
       })

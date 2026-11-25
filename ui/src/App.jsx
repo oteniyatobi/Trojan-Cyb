@@ -139,7 +139,9 @@ function App() {
   const [route, setRoute] = useState(window.location.hash.slice(1) || '/login')
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(supabaseConfigured)
-  const [authError, setAuthError] = useState('')
+  const [authError, setAuthError] = useState(() => (
+    new URLSearchParams(window.location.hash.slice(1)).get('error_description') || ''
+  ))
   const [organizations, setOrganizations] = useState([])
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('')
   const [workspaceLoadedForUser, setWorkspaceLoadedForUser] = useState('')
@@ -258,7 +260,7 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!active) return
       setSession(nextSession)
-      setAuthError('')
+      if (nextSession) setAuthError('')
     })
 
     supabase.auth.getSession().then(({ data, error }) => {
